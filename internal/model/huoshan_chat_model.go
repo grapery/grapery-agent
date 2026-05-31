@@ -42,9 +42,15 @@ func NewHuoshanChatModel(cfg config.EinoConfig) *HuoshanChatModel {
 // huoshan 和 gemini 均使用 OpenAI 兼容 API，复用同一个实现。
 // 缺少必要配置时 panic 并给出明确错误信息。
 func NewChatModel(cfg config.EinoConfig) *HuoshanChatModel {
-	if cfg.TextModel == "" {
-		log.Fatalf("EINO_TEXT_MODEL is required (endpoint ID for huoshan, model name for gemini)")
+	textModel := strings.TrimSpace(cfg.TextModel)
+	if textModel == "" {
+		if cfg.TextProvider == "gemini" {
+			log.Fatalf("EINO_TEXT_MODEL is required when EINO_TEXT_PROVIDER=gemini")
+		}
+		textModel = config.DefaultHuoshanTextModel
+		log.Printf("warning: EINO_TEXT_MODEL unset, using default %q", textModel)
 	}
+	cfg.TextModel = textModel
 	switch cfg.TextProvider {
 	case "gemini":
 		if cfg.GeminiAPIKey == "" {
