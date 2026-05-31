@@ -23,8 +23,10 @@
 |------|------|
 | PR | 构建 + prompt 漂移测试 |
 | `develop` push | dev 镜像 + 部署到 `DEV_DEPLOY_HOST` |
-| `main` push | prod 镜像 + 部署到 `PROD_DEPLOY_HOST` |
-| `workflow_dispatch` | 选择 dev / prod |
+| `main` push | prod 镜像 + 部署（**默认关闭**，见下） |
+| `workflow_dispatch` | 选择 dev / prod（prod 需开关） |
+
+**生产部署开关**：仓库 Variables 设置 `ENABLE_AGENT_PROD_DEPLOY=true` 后，`main` 推送或手动选 prod 才会构建/部署生产。未设置时仅走 develop/dev。
 
 远端目录：`/home/ubuntu/grapery/grapery-agent/`
 

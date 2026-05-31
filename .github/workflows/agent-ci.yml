@@ -114,9 +114,13 @@ jobs:
     name: Docker Build (Production)
     runs-on: ubuntu-latest
     needs: build
+    # 生产部署默认关闭；就绪后在仓库 Variables 设置 ENABLE_AGENT_PROD_DEPLOY=true
     if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod')
+      vars.ENABLE_AGENT_PROD_DEPLOY == 'true' &&
+      (
+        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod')
+      )
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -272,8 +276,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: docker-production
     if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod')
+      vars.ENABLE_AGENT_PROD_DEPLOY == 'true' &&
+      (
+        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod')
+      )
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
