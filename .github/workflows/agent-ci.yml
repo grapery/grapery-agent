@@ -236,12 +236,23 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "After first deploy or nginx route changes, run **ngx** \`ngx-ci.yml\` (workflow_dispatch)." >> $GITHUB_STEP_SUMMARY
 
+      - name: Validate SSH deploy credentials
+        run: |
+          if [ -z "${{ secrets.SSH_KEY }}" ] && [ -z "${{ vars.SSH_KEY }}" ]; then
+            echo "::error::SSH_KEY is empty. Set Actions Secret SSH_KEY or Variable SSH_KEY."
+            exit 1
+          fi
+          if [ -z "${{ secrets.SSH_USER }}" ] && [ -z "${{ vars.SSH_USER }}" ]; then
+            echo "::error::SSH_USER is empty. Set Actions Secret SSH_USER or Variable SSH_USER."
+            exit 1
+          fi
+
       - name: Upload files to ECS
         uses: appleboy/scp-action@v0.1.4
         with:
           host: ${{ vars.DEV_DEPLOY_HOST }}
-          username: ${{ vars.SSH_USER }}
-          key: ${{ vars.SSH_KEY }}
+          username: ${{ secrets.SSH_USER || vars.SSH_USER }}
+          key: ${{ secrets.SSH_KEY || vars.SSH_KEY }}
           port: 22
           source: ".env,docker-compose.grapery-agent.yml"
           target: "${{ env.DEPLOY_DIR }}/"
@@ -250,8 +261,8 @@ jobs:
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ vars.DEV_DEPLOY_HOST }}
-          username: ${{ vars.SSH_USER }}
-          key: ${{ vars.SSH_KEY }}
+          username: ${{ secrets.SSH_USER || vars.SSH_USER }}
+          key: ${{ secrets.SSH_KEY || vars.SSH_KEY }}
           port: 22
           script: |
             SERVICE_DIR="${{ env.DEPLOY_DIR }}"
@@ -370,12 +381,23 @@ jobs:
           echo "- HUOSHAN_API_KEY: ${{ vars.HUOSHAN_API_KEY != '' && 'Set' || 'Missing' }}" >> $GITHUB_STEP_SUMMARY
           echo "- GRAPERY_AGENT_API_KEY: ${{ vars.GRAPERY_AGENT_API_KEY != '' && 'Set' || 'Optional' }}" >> $GITHUB_STEP_SUMMARY
 
+      - name: Validate SSH deploy credentials
+        run: |
+          if [ -z "${{ secrets.SSH_KEY }}" ] && [ -z "${{ vars.SSH_KEY }}" ]; then
+            echo "::error::SSH_KEY is empty. Set Actions Secret SSH_KEY or Variable SSH_KEY."
+            exit 1
+          fi
+          if [ -z "${{ secrets.SSH_USER }}" ] && [ -z "${{ vars.SSH_USER }}" ]; then
+            echo "::error::SSH_USER is empty. Set Actions Secret SSH_USER or Variable SSH_USER."
+            exit 1
+          fi
+
       - name: Upload files to ECS
         uses: appleboy/scp-action@v0.1.4
         with:
           host: ${{ vars.PROD_DEPLOY_HOST }}
-          username: ${{ vars.SSH_USER }}
-          key: ${{ vars.SSH_KEY }}
+          username: ${{ secrets.SSH_USER || vars.SSH_USER }}
+          key: ${{ secrets.SSH_KEY || vars.SSH_KEY }}
           port: 22
           source: ".env,docker-compose.grapery-agent.yml"
           target: "${{ env.DEPLOY_DIR }}/"
@@ -384,8 +406,8 @@ jobs:
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ vars.PROD_DEPLOY_HOST }}
-          username: ${{ vars.SSH_USER }}
-          key: ${{ vars.SSH_KEY }}
+          username: ${{ secrets.SSH_USER || vars.SSH_USER }}
+          key: ${{ secrets.SSH_KEY || vars.SSH_KEY }}
           port: 22
           script: |
             SERVICE_DIR="${{ env.DEPLOY_DIR }}"

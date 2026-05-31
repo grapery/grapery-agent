@@ -32,7 +32,12 @@
 
 ### 需在仓库配置的 Variables（与 grapery 对齐，勿用 Secrets）
 
-在 **grapery-agent** 仓库 [Settings → Variables → Actions](https://github.com/grapery/grapery-agent/settings/variables/actions) 中，从 [grapery 同名页](https://github.com/grapery/grapery/settings/variables/actions) 复制整套 **Repository variables**（名称与值一致），至少包含：
+在 **grapery-agent** 仓库配置 Actions：
+
+- **Variables**：[Settings → Variables → Actions](https://github.com/grapery/grapery-agent/settings/variables/actions) — 从 [grapery 同名页](https://github.com/grapery/grapery/settings/variables/actions) 复制绝大部分项（`ACR_*`、`DEV_DEPLOY_HOST`、`DB_*`、AI、阿里云等）。
+- **Secrets**：[Settings → Secrets → Actions](https://github.com/grapery/grapery-agent/settings/secrets/actions) — **`SSH_KEY`**（完整 PEM 多行）、**`SSH_USER`**（如 `root`）。workflow 优先读 Secret，也兼容 Variable。
+
+至少包含：
 
 | 类别 | 变量（示例） |
 |------|----------------|
