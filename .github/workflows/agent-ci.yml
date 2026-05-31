@@ -178,7 +178,8 @@ jobs:
 
           # ========== Eino / AI ==========
           EINO_TEXT_PROVIDER=${{ vars.AI_DEFAULT_PROVIDER || 'huoshan' }}
-          EINO_TEXT_MODEL=${{ vars.EINO_TEXT_MODEL || vars.HUOSHAN_TEXT_MODEL }}
+          EINO_TEXT_MODEL=${{ vars.EINO_TEXT_MODEL || vars.HUOSHAN_TEXT_MODEL || 'doubao-seed-2-0-lite-260215' }}
+          HUOSHAN_TEXT_MODEL=${{ vars.HUOSHAN_TEXT_MODEL || vars.EINO_TEXT_MODEL || 'doubao-seed-2-0-lite-260215' }}
           EINO_MAX_ITERATIONS=${{ vars.EINO_MAX_ITERATIONS || '30' }}
           EINO_REQUEST_TIMEOUT=${{ vars.EINO_REQUEST_TIMEOUT || '180' }}
           HUOSHAN_API_KEY=${{ vars.HUOSHAN_API_KEY }}
@@ -334,7 +335,8 @@ jobs:
 
           # ========== Eino / AI ==========
           EINO_TEXT_PROVIDER=${{ vars.AI_DEFAULT_PROVIDER || 'huoshan' }}
-          EINO_TEXT_MODEL=${{ vars.EINO_TEXT_MODEL || vars.HUOSHAN_TEXT_MODEL }}
+          EINO_TEXT_MODEL=${{ vars.EINO_TEXT_MODEL || vars.HUOSHAN_TEXT_MODEL || 'doubao-seed-2-0-lite-260215' }}
+          HUOSHAN_TEXT_MODEL=${{ vars.HUOSHAN_TEXT_MODEL || vars.EINO_TEXT_MODEL || 'doubao-seed-2-0-lite-260215' }}
           EINO_MAX_ITERATIONS=${{ vars.EINO_MAX_ITERATIONS || '30' }}
           EINO_REQUEST_TIMEOUT=${{ vars.EINO_REQUEST_TIMEOUT || '180' }}
           HUOSHAN_API_KEY=${{ vars.HUOSHAN_API_KEY }}

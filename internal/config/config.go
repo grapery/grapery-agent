@@ -28,6 +28,8 @@ type GraperyConfig struct {
 const (
 	// SeedreamTimeoutFloor Seedream 5.0 组图流式最低超时（秒），与 grapery EffectiveHuoshanRequestTimeoutFloor 对齐。
 	SeedreamTimeoutFloor = 600
+	// DefaultHuoshanTextModel 与 grapery/internal/genai/providers/huoshan defaultTextModel 一致。
+	DefaultHuoshanTextModel = "doubao-seed-2-0-lite-260215"
 )
 
 type EinoConfig struct {
@@ -64,8 +66,8 @@ func Load() *Config {
 			ExportDir: getEnv("AGENT_ARTIFACT_DIR", "./data/agent-artifacts"),
 		},
 		Eino: EinoConfig{
-			TextModel:      getEnv("EINO_TEXT_MODEL", ""),
-			TextProvider:   getEnv("EINO_TEXT_PROVIDER", "huoshan"),
+			TextModel:      loadTextModel(),
+			TextProvider:   getEnv("EINO_TEXT_PROVIDER", getEnv("AI_DEFAULT_PROVIDER", "huoshan")),
 			HuoshanAPIKey:  getEnv("HUOSHAN_API_KEY", ""),
 			HuoshanBaseURL: getEnv("HUOSHAN_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
 			GeminiAPIKey:   getEnv("GEMINI_API_KEY", ""),
@@ -75,6 +77,17 @@ func Load() *Config {
 			VideoModel:     getEnv("HUOSHAN_VIDEO_MODEL", "doubao-seedance-1-5-pro-251215"),
 		},
 	}
+}
+
+// loadTextModel 读取文本模型：EINO_TEXT_MODEL → HUOSHAN_TEXT_MODEL → 火山默认模型 ID。
+func loadTextModel() string {
+	if v := os.Getenv("EINO_TEXT_MODEL"); v != "" {
+		return v
+	}
+	if v := os.Getenv("HUOSHAN_TEXT_MODEL"); v != "" {
+		return v
+	}
+	return DefaultHuoshanTextModel
 }
 
 func getEnv(key, fallback string) string {
