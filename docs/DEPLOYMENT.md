@@ -32,12 +32,7 @@
 
 ### 需在仓库配置的 Variables（与 grapery 对齐，勿用 Secrets）
 
-在 **grapery-agent** 仓库配置 Actions：
-
-- **Variables**：[Settings → Variables → Actions](https://github.com/grapery/grapery-agent/settings/variables/actions) — 从 [grapery 同名页](https://github.com/grapery/grapery/settings/variables/actions) 复制绝大部分项（`ACR_*`、`DEV_DEPLOY_HOST`、`DB_*`、AI、阿里云等）。
-- **Secrets**：[Settings → Secrets → Actions](https://github.com/grapery/grapery-agent/settings/secrets/actions) — **`SSH_KEY`**（完整 PEM 多行）、**`SSH_USER`**（如 `root`）。workflow 优先读 Secret，也兼容 Variable。
-
-至少包含：
+在 **grapery-agent** 仓库 [Settings → Variables → Actions](https://github.com/grapery/grapery-agent/settings/variables/actions) 中，从 [grapery 同名页](https://github.com/grapery/grapery/settings/variables/actions) 复制整套 **Repository variables**（名称与值一致），至少包含：
 
 | 类别 | 变量（示例） |
 |------|----------------|
@@ -48,6 +43,12 @@
 | 鉴权 | `JWT_SECRET`, `JWT_EXPIRY_HOURS` |
 
 `agent-ci.yml` 部署生成的 `.env` 会写入 DB、Redis、JWT、阿里云 OSS/SMS 等，与 server 侧配置一致，便于后续能力扩展或与 grapery 共用基础设施。
+
+### SSH_KEY（Variables）
+
+- 使用 **`vars.SSH_KEY`**（与 grapery `server-ci` 一致），不要用 `secrets.SSH_KEY`，除非你把 workflow 改成读 Secret。
+- 私钥必须是**多行 PEM**（`BEGIN` / `END` 各占一行，中间为多行 base64）。若在 Variables 列表里看到 `-----BEGIN RSA PRIVATE KEY----- MIIEo...` 挤在一行，Actions 会报 `ssh: no key found`，请重新编辑变量，从 grapery 仓库或本机 `.pem` 完整粘贴。
+- CI 在 scp/ssh 前会用 `ssh-keygen -y` 校验 PEM；失败时先修 Variable 再 Re-run。
 
 ### Prompt 漂移测试
 

@@ -235,24 +235,33 @@ jobs:
           echo "- HUOSHAN_API_KEY: ${{ vars.HUOSHAN_API_KEY != '' && 'Set' || 'Missing' }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "After first deploy or nginx route changes, run **ngx** \`ngx-ci.yml\` (workflow_dispatch)." >> $GITHUB_STEP_SUMMARY
+          echo "- SSH_KEY: ${{ vars.SSH_KEY != '' && 'Set' || 'Missing' }}" >> $GITHUB_STEP_SUMMARY
 
-      - name: Validate SSH deploy credentials
+      - name: Prepare SSH private key
+        id: ssh_key
+        env:
+          SSH_KEY: ${{ vars.SSH_KEY }}
         run: |
-          if [ -z "${{ secrets.SSH_KEY }}" ] && [ -z "${{ vars.SSH_KEY }}" ]; then
-            echo "::error::SSH_KEY is empty. Set Actions Secret SSH_KEY or Variable SSH_KEY."
+          set -euo pipefail
+          if [ -z "${SSH_KEY// }" ]; then
+            echo "::error::vars.SSH_KEY is empty"
             exit 1
           fi
-          if [ -z "${{ secrets.SSH_USER }}" ] && [ -z "${{ vars.SSH_USER }}" ]; then
-            echo "::error::SSH_USER is empty. Set Actions Secret SSH_USER or Variable SSH_USER."
+          KEY_FILE="${RUNNER_TEMP}/deploy_ssh_key.pem"
+          printf '%s\n' "$SSH_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+          if ! ssh-keygen -y -f "$KEY_FILE" >/dev/null 2>&1; then
+            echo "::error::vars.SSH_KEY is not valid PEM (must keep line breaks; copy from grapery repo or .pem file)"
             exit 1
           fi
+          echo "path=$KEY_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Upload files to ECS
         uses: appleboy/scp-action@v0.1.4
         with:
           host: ${{ vars.DEV_DEPLOY_HOST }}
-          username: ${{ secrets.SSH_USER || vars.SSH_USER }}
-          key: ${{ secrets.SSH_KEY || vars.SSH_KEY }}
+          username: ${{ vars.SSH_USER }}
+          key_path: ${{ steps.ssh_key.outputs.path }}
           port: 22
           source: ".env,docker-compose.grapery-agent.yml"
           target: "${{ env.DEPLOY_DIR }}/"
@@ -261,8 +270,8 @@ jobs:
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ vars.DEV_DEPLOY_HOST }}
-          username: ${{ secrets.SSH_USER || vars.SSH_USER }}
-          key: ${{ secrets.SSH_KEY || vars.SSH_KEY }}
+          username: ${{ vars.SSH_USER }}
+          key_path: ${{ steps.ssh_key.outputs.path }}
           port: 22
           script: |
             SERVICE_DIR="${{ env.DEPLOY_DIR }}"
@@ -381,23 +390,31 @@ jobs:
           echo "- HUOSHAN_API_KEY: ${{ vars.HUOSHAN_API_KEY != '' && 'Set' || 'Missing' }}" >> $GITHUB_STEP_SUMMARY
           echo "- GRAPERY_AGENT_API_KEY: ${{ vars.GRAPERY_AGENT_API_KEY != '' && 'Set' || 'Optional' }}" >> $GITHUB_STEP_SUMMARY
 
-      - name: Validate SSH deploy credentials
+      - name: Prepare SSH private key
+        id: ssh_key
+        env:
+          SSH_KEY: ${{ vars.SSH_KEY }}
         run: |
-          if [ -z "${{ secrets.SSH_KEY }}" ] && [ -z "${{ vars.SSH_KEY }}" ]; then
-            echo "::error::SSH_KEY is empty. Set Actions Secret SSH_KEY or Variable SSH_KEY."
+          set -euo pipefail
+          if [ -z "${SSH_KEY// }" ]; then
+            echo "::error::vars.SSH_KEY is empty"
             exit 1
           fi
-          if [ -z "${{ secrets.SSH_USER }}" ] && [ -z "${{ vars.SSH_USER }}" ]; then
-            echo "::error::SSH_USER is empty. Set Actions Secret SSH_USER or Variable SSH_USER."
+          KEY_FILE="${RUNNER_TEMP}/deploy_ssh_key.pem"
+          printf '%s\n' "$SSH_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+          if ! ssh-keygen -y -f "$KEY_FILE" >/dev/null 2>&1; then
+            echo "::error::vars.SSH_KEY is not valid PEM (must keep line breaks; copy from grapery repo or .pem file)"
             exit 1
           fi
+          echo "path=$KEY_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Upload files to ECS
         uses: appleboy/scp-action@v0.1.4
         with:
           host: ${{ vars.PROD_DEPLOY_HOST }}
-          username: ${{ secrets.SSH_USER || vars.SSH_USER }}
-          key: ${{ secrets.SSH_KEY || vars.SSH_KEY }}
+          username: ${{ vars.SSH_USER }}
+          key_path: ${{ steps.ssh_key.outputs.path }}
           port: 22
           source: ".env,docker-compose.grapery-agent.yml"
           target: "${{ env.DEPLOY_DIR }}/"
@@ -406,8 +423,8 @@ jobs:
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ vars.PROD_DEPLOY_HOST }}
-          username: ${{ secrets.SSH_USER || vars.SSH_USER }}
-          key: ${{ secrets.SSH_KEY || vars.SSH_KEY }}
+          username: ${{ vars.SSH_USER }}
+          key_path: ${{ steps.ssh_key.outputs.path }}
           port: 22
           script: |
             SERVICE_DIR="${{ env.DEPLOY_DIR }}"
