@@ -1,5 +1,7 @@
 # Agent Instruction ↔ grapery Prompt 对照表
 
+> 功能总览、API、流程图与时序图见 [OVERVIEW.md](./OVERVIEW.md)。
+
 本文档说明 **grapery-agent** 中 Eino Agent 的 `Instruction` 与 **grapery** 服务端真实 LLM 提示词的关系，以及如何降低两处漂移。
 
 ## 架构原则
