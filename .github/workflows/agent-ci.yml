@@ -1,0 +1,399 @@
+name: Grapery Agent CI/CD
+
+on:
+  push:
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Dockerfile'
+      - 'docker-compose.grapery-agent.yml'
+      - 'env.grapery-agent.*.example'
+      - '.github/workflows/agent-ci.yml'
+    branches:
+      - main
+      - develop
+  pull_request:
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Dockerfile'
+      - 'docker-compose.grapery-agent.yml'
+      - 'env.grapery-agent.*.example'
+      - '.github/workflows/agent-ci.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: '部署环境'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+
+env:
+  GO_VERSION: '1.25'
+  REGISTRY: ${{ vars.ACR_REGISTRY || 'crpi-kz6w8hb0pa94yvgy.cn-hangzhou.personal.cr.aliyuncs.com' }}
+  IMAGE_NAME: grapery-agent
+  SERVICE_NAME: grapery-agent
+  SERVICE_PORT: '9020'
+  DEPLOY_DIR: /home/ubuntu/grapery/grapery-agent
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout grapery-agent
+        uses: actions/checkout@v4
+        with:
+          path: grapery-agent
+
+      - name: Checkout grapery (prompt drift)
+        uses: actions/checkout@v4
+        with:
+          repository: grapery/grapery
+          ref: ${{ github.base_ref || github.ref_name }}
+          path: grapery
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: grapery-agent/go.sum
+
+      - name: Prompt drift test
+        working-directory: grapery-agent
+        run: go test ./internal/prompt/ -run TestGraperyPromptAnchors
+
+      - name: Build binary
+        working-directory: grapery-agent
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -ldflags="-s -w" \
+            -o ./bin/${{ env.SERVICE_NAME }} ./cmd/server
+          ls -lh ./bin/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: grapery-${{ env.SERVICE_NAME }}
+          path: grapery-agent/bin/${{ env.SERVICE_NAME }}
+          retention-days: 7
+
+  docker-develop:
+    name: Docker Build (Develop)
+    runs-on: ubuntu-latest
+    needs: build
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/develop') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Aliyun ACR
+        run: echo ${{ vars.ACR_PASSWORD }} | docker login ${{ env.REGISTRY }} -u ${{ vars.ACR_USERNAME }} --password-stdin
+
+      - name: Build and push Docker image
+        run: |
+          docker build \
+            -t ${{ env.REGISTRY }}/grapery-dev/${{ env.IMAGE_NAME }}:dev \
+            --build-arg VERSION=develop-${{ github.sha }} \
+            --build-arg COMMIT_SHA=${{ github.sha }} \
+            --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+            .
+          docker push ${{ env.REGISTRY }}/grapery-dev/${{ env.IMAGE_NAME }}:dev
+
+  docker-production:
+    name: Docker Build (Production)
+    runs-on: ubuntu-latest
+    needs: build
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Aliyun ACR
+        run: echo ${{ vars.ACR_PASSWORD }} | docker login ${{ env.REGISTRY }} -u ${{ vars.ACR_USERNAME }} --password-stdin
+
+      - name: Build and push Docker image
+        run: |
+          docker build \
+            -t ${{ env.REGISTRY }}/grapery-prod/${{ env.IMAGE_NAME }}:prod \
+            --build-arg VERSION=${{ github.sha }} \
+            --build-arg COMMIT_SHA=${{ github.sha }} \
+            --build-arg BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+            .
+          docker push ${{ env.REGISTRY }}/grapery-prod/${{ env.IMAGE_NAME }}:prod
+
+  deploy-develop:
+    name: Deploy to Development
+    runs-on: ubuntu-latest
+    needs: docker-develop
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/develop') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate .env file
+        run: |
+          cat > .env << EOF
+          # ========== Environment ==========
+          ENVIRONMENT=development
+          GRAPERY_ENV=development
+          SERVICE_NAME=${{ env.SERVICE_NAME }}
+          IMAGE=${{ env.REGISTRY }}/grapery-dev/${{ env.IMAGE_NAME }}:dev
+
+          # ========== Service ==========
+          SERVER_PORT=${{ env.SERVICE_PORT }}
+          GRAPERY_BASE_URL=http://server:8080
+          GRAPERY_API_KEY=${{ vars.GRAPERY_AGENT_API_KEY || vars.JWT_SECRET }}
+          AGENT_ARTIFACT_DIR=/app/data/agent-artifacts
+          LOG_LEVEL=${{ vars.LOG_LEVEL || 'debug' }}
+
+          # ========== Database (shared with server) ==========
+          DB_DATABASE=${{ vars.DB_DATABASE || 'grapery_dev' }}
+          DB_USERNAME=${{ vars.DB_USERNAME }}
+          DB_PASSWORD=${{ vars.DB_PASSWORD }}
+          DB_ADDRESS=${{ vars.DB_ADDRESS }}
+
+          # ========== Redis ==========
+          REDIS_ADDRESS=${{ vars.REDIS_ADDRESS || vars.REDIS_SERVER }}
+          REDIS_PASSWORD=${{ vars.REDIS_PASSWORD }}
+          REDIS_DATABASE=${{ vars.REDIS_DATABASE || '0' }}
+
+          # ========== Eino / AI ==========
+          EINO_TEXT_PROVIDER=${{ vars.AI_DEFAULT_PROVIDER || 'huoshan' }}
+          EINO_TEXT_MODEL=${{ vars.EINO_TEXT_MODEL || vars.HUOSHAN_TEXT_MODEL }}
+          EINO_MAX_ITERATIONS=${{ vars.EINO_MAX_ITERATIONS || '30' }}
+          EINO_REQUEST_TIMEOUT=${{ vars.EINO_REQUEST_TIMEOUT || '180' }}
+          HUOSHAN_API_KEY=${{ vars.HUOSHAN_API_KEY }}
+          HUOSHAN_BASE_URL=${{ vars.HUOSHAN_BASE_URL }}
+          HUOSHAN_IMAGE_MODEL=${{ vars.HUOSHAN_IMAGE_MODEL }}
+          HUOSHAN_VIDEO_MODEL=${{ vars.HUOSHAN_VIDEO_MODEL }}
+          GEMINI_API_KEY=${{ vars.GEMINI_API_KEY }}
+          GEMINI_BASE_URL=${{ vars.GEMINI_BASE_URL }}
+
+          # ========== JWT (service / grapery alignment) ==========
+          JWT_SECRET=${{ vars.JWT_SECRET }}
+          JWT_EXPIRY_HOURS=${{ vars.JWT_EXPIRY_HOURS || '24' }}
+
+          # ========== Aliyun OSS ==========
+          ALIYUN_API_KEY=${{ vars.ALIYUN_API_KEY }}
+          ALIYUN_SECRET_KEY=${{ vars.ALIYUN_SECRET_KEY }}
+          ALIYUN_ENDPOINT=${{ vars.ALIYUN_ENDPOINT || vars.ALIYUN_OSS_ENDPOINT || 'oss-cn-shanghai.aliyuncs.com' }}
+          ALIYUN_BUCKET=${{ vars.ALIYUN_BUCKET || vars.ALIYUN_OSS_BUCKET || 'grapery-dev' }}
+          ALIYUN_ROLE_ARN=${{ vars.ALIYUN_ROLE_ARN }}
+          ALIYUN_OSS_ACCESS_KEY_ID=${{ vars.ALIYUN_OSS_ACCESS_KEY_ID }}
+          ALIYUN_OSS_ACCESS_KEY_SECRET=${{ vars.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+          ALIYUN_OSS_ROLE_ARN=${{ vars.ALIYUN_OSS_ROLE_ARN }}
+
+          # ========== Aliyun SMS ==========
+          ALIYUN_SMS_SIGN_NAME=${{ vars.ALIYUN_SMS_SIGN_NAME }}
+          ALIYUN_SMS_TEMPLATE_CODE=${{ vars.ALIYUN_SMS_TEMPLATE_CODE }}
+          ALIYUN_SMS_REGION=${{ vars.ALIYUN_SMS_REGION || 'cn-hangzhou' }}
+          ALIYUN_SMS_ENDPOINT=${{ vars.ALIYUN_SMS_ENDPOINT }}
+          ALIYUN_SMS_USE_DEFAULT_CREDENTIAL=${{ vars.ALIYUN_SMS_USE_DEFAULT_CREDENTIAL || '1' }}
+          ALIYUN_SMS_ACCESS_KEY_ID=${{ vars.ALIYUN_SMS_ACCESS_ID }}
+          ALIYUN_SMS_ACCESS_KEY_SECRET=${{ vars.ALIYUN_SMS_ACCESS_SECRET }}
+          ALIYUN_ACCESS_KEY_ID=${{ vars.ALIYUN_ACCESS_KEY_ID }}
+          ALIYUN_ACCESS_KEY_SECRET=${{ vars.ALIYUN_ACCESS_KEY_SECRET }}
+          EOF
+
+      - name: Deploy notification
+        run: |
+          echo "## Development Deployment - Grapery Agent" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | ${{ env.SERVICE_NAME }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Port | ${{ env.SERVICE_PORT }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | development |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ env.REGISTRY }}/grapery-dev/${{ env.IMAGE_NAME }}:dev\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| DB_DATABASE | \`grapery_dev\` (default) |" >> $GITHUB_STEP_SUMMARY
+          echo "| ALIYUN_BUCKET | \`grapery-dev\` (default) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Upstream | \`http://server:8080\` (grapery-network) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Config checks" >> $GITHUB_STEP_SUMMARY
+          echo "- DB_PASSWORD: ${{ vars.DB_PASSWORD != '' && 'Set' || 'Missing' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- JWT_SECRET: ${{ vars.JWT_SECRET != '' && 'Set' || 'Missing' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- HUOSHAN_API_KEY: ${{ vars.HUOSHAN_API_KEY != '' && 'Set' || 'Missing' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "After first deploy or nginx route changes, run **ngx** \`ngx-ci.yml\` (workflow_dispatch)." >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload files to ECS
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: ${{ vars.DEV_DEPLOY_HOST }}
+          username: ${{ vars.SSH_USER }}
+          key: ${{ vars.SSH_KEY }}
+          port: 22
+          source: ".env,docker-compose.grapery-agent.yml"
+          target: "${{ env.DEPLOY_DIR }}/"
+
+      - name: Remote Deploy to Development
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ vars.DEV_DEPLOY_HOST }}
+          username: ${{ vars.SSH_USER }}
+          key: ${{ vars.SSH_KEY }}
+          port: 22
+          script: |
+            SERVICE_DIR="${{ env.DEPLOY_DIR }}"
+            mkdir -p "$SERVICE_DIR/data/agent-artifacts"
+            cd "$SERVICE_DIR"
+
+            export REGISTRY=${{ env.REGISTRY }}
+            echo "${{ vars.ACR_PASSWORD }}" | docker login $REGISTRY -u "${{ vars.ACR_USERNAME }}" --password-stdin
+
+            export IMAGE=${{ env.REGISTRY }}/grapery-dev/${{ env.IMAGE_NAME }}:dev
+            docker pull "$IMAGE"
+
+            docker network create grapery-network 2>/dev/null || echo "Network already exists"
+
+            docker compose -f docker-compose.grapery-agent.yml -p grapery-agent down 2>/dev/null || true
+            docker compose -f docker-compose.grapery-agent.yml -p grapery-agent up -d grapery-agent
+
+            docker image prune -f
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: docker-production
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate .env file
+        run: |
+          cat > .env << EOF
+          # ========== Environment ==========
+          ENVIRONMENT=production
+          GRAPERY_ENV=production
+          SERVICE_NAME=${{ env.SERVICE_NAME }}
+          IMAGE=${{ env.REGISTRY }}/grapery-prod/${{ env.IMAGE_NAME }}:prod
+
+          # ========== Service ==========
+          SERVER_PORT=${{ env.SERVICE_PORT }}
+          GRAPERY_BASE_URL=http://server:8080
+          GRAPERY_API_KEY=${{ vars.GRAPERY_AGENT_API_KEY || vars.JWT_SECRET }}
+          AGENT_ARTIFACT_DIR=/app/data/agent-artifacts
+          LOG_LEVEL=${{ vars.LOG_LEVEL || 'info' }}
+
+          # ========== Database (shared with server) ==========
+          DB_DATABASE=${{ vars.DB_DATABASE || 'grapery' }}
+          DB_USERNAME=${{ vars.DB_USERNAME }}
+          DB_PASSWORD=${{ vars.DB_PASSWORD }}
+          DB_ADDRESS=${{ vars.DB_ADDRESS }}
+
+          # ========== Redis ==========
+          REDIS_ADDRESS=${{ vars.REDIS_ADDRESS || vars.REDIS_SERVER }}
+          REDIS_PASSWORD=${{ vars.REDIS_PASSWORD }}
+          REDIS_DATABASE=${{ vars.REDIS_DATABASE || '0' }}
+
+          # ========== Eino / AI ==========
+          EINO_TEXT_PROVIDER=${{ vars.AI_DEFAULT_PROVIDER || 'huoshan' }}
+          EINO_TEXT_MODEL=${{ vars.EINO_TEXT_MODEL || vars.HUOSHAN_TEXT_MODEL }}
+          EINO_MAX_ITERATIONS=${{ vars.EINO_MAX_ITERATIONS || '30' }}
+          EINO_REQUEST_TIMEOUT=${{ vars.EINO_REQUEST_TIMEOUT || '180' }}
+          HUOSHAN_API_KEY=${{ vars.HUOSHAN_API_KEY }}
+          HUOSHAN_BASE_URL=${{ vars.HUOSHAN_BASE_URL }}
+          HUOSHAN_IMAGE_MODEL=${{ vars.HUOSHAN_IMAGE_MODEL }}
+          HUOSHAN_VIDEO_MODEL=${{ vars.HUOSHAN_VIDEO_MODEL }}
+          GEMINI_API_KEY=${{ vars.GEMINI_API_KEY }}
+          GEMINI_BASE_URL=${{ vars.GEMINI_BASE_URL }}
+
+          # ========== JWT ==========
+          JWT_SECRET=${{ vars.JWT_SECRET }}
+          JWT_EXPIRY_HOURS=${{ vars.JWT_EXPIRY_HOURS || '24' }}
+
+          # ========== Aliyun OSS ==========
+          ALIYUN_API_KEY=${{ vars.ALIYUN_API_KEY }}
+          ALIYUN_SECRET_KEY=${{ vars.ALIYUN_SECRET_KEY }}
+          ALIYUN_ENDPOINT=${{ vars.ALIYUN_ENDPOINT || vars.ALIYUN_OSS_ENDPOINT || 'oss-cn-shanghai.aliyuncs.com' }}
+          ALIYUN_BUCKET=${{ vars.ALIYUN_BUCKET || vars.ALIYUN_OSS_BUCKET || 'grapery-prod' }}
+          ALIYUN_ROLE_ARN=${{ vars.ALIYUN_ROLE_ARN }}
+          ALIYUN_OSS_ACCESS_KEY_ID=${{ vars.ALIYUN_OSS_ACCESS_KEY_ID }}
+          ALIYUN_OSS_ACCESS_KEY_SECRET=${{ vars.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+          ALIYUN_OSS_ROLE_ARN=${{ vars.ALIYUN_OSS_ROLE_ARN }}
+
+          # ========== Aliyun SMS ==========
+          ALIYUN_SMS_SIGN_NAME=${{ vars.ALIYUN_SMS_SIGN_NAME }}
+          ALIYUN_SMS_TEMPLATE_CODE=${{ vars.ALIYUN_SMS_TEMPLATE_CODE }}
+          ALIYUN_SMS_REGION=${{ vars.ALIYUN_SMS_REGION || 'cn-hangzhou' }}
+          ALIYUN_SMS_ENDPOINT=${{ vars.ALIYUN_SMS_ENDPOINT }}
+          ALIYUN_SMS_USE_DEFAULT_CREDENTIAL=${{ vars.ALIYUN_SMS_USE_DEFAULT_CREDENTIAL || '1' }}
+          ALIYUN_SMS_ACCESS_KEY_ID=${{ vars.ALIYUN_SMS_ACCESS_ID }}
+          ALIYUN_SMS_ACCESS_KEY_SECRET=${{ vars.ALIYUN_SMS_ACCESS_SECRET }}
+          ALIYUN_ACCESS_KEY_ID=${{ vars.ALIYUN_ACCESS_KEY_ID }}
+          ALIYUN_ACCESS_KEY_SECRET=${{ vars.ALIYUN_ACCESS_KEY_SECRET }}
+          EOF
+
+      - name: Deploy notification
+        run: |
+          echo "## Production Deployment - Grapery Agent" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | ${{ env.SERVICE_NAME }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Port | ${{ env.SERVICE_PORT }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | production |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ env.REGISTRY }}/grapery-prod/${{ env.IMAGE_NAME }}:prod\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| DB_DATABASE | \`grapery\` (default) |" >> $GITHUB_STEP_SUMMARY
+          echo "| ALIYUN_BUCKET | \`grapery-prod\` (default) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Config checks" >> $GITHUB_STEP_SUMMARY
+          echo "- DB_PASSWORD: ${{ vars.DB_PASSWORD != '' && 'Set' || 'Missing' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- JWT_SECRET: ${{ vars.JWT_SECRET != '' && 'Set' || 'Missing' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- HUOSHAN_API_KEY: ${{ vars.HUOSHAN_API_KEY != '' && 'Set' || 'Missing' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- GRAPERY_AGENT_API_KEY: ${{ vars.GRAPERY_AGENT_API_KEY != '' && 'Set' || 'Optional' }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload files to ECS
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: ${{ vars.PROD_DEPLOY_HOST }}
+          username: ${{ vars.SSH_USER }}
+          key: ${{ vars.SSH_KEY }}
+          port: 22
+          source: ".env,docker-compose.grapery-agent.yml"
+          target: "${{ env.DEPLOY_DIR }}/"
+
+      - name: Remote Deploy to Production
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ vars.PROD_DEPLOY_HOST }}
+          username: ${{ vars.SSH_USER }}
+          key: ${{ vars.SSH_KEY }}
+          port: 22
+          script: |
+            SERVICE_DIR="${{ env.DEPLOY_DIR }}"
+            mkdir -p "$SERVICE_DIR/data/agent-artifacts"
+            cd "$SERVICE_DIR"
+
+            export REGISTRY=${{ env.REGISTRY }}
+            echo "${{ vars.ACR_PASSWORD }}" | docker login $REGISTRY -u "${{ vars.ACR_USERNAME }}" --password-stdin
+
+            export IMAGE=${{ env.REGISTRY }}/grapery-prod/${{ env.IMAGE_NAME }}:prod
+            docker pull "$IMAGE"
+
+            docker network create grapery-network 2>/dev/null || echo "Network already exists"
+
+            docker compose -f docker-compose.grapery-agent.yml -p grapery-agent down 2>/dev/null || true
+            docker compose -f docker-compose.grapery-agent.yml -p grapery-agent up -d grapery-agent
+
+            docker image prune -f

@@ -23,10 +23,15 @@ internal/
 
 ## 配置
 
-复制 `.env.example` 为 `.env` 并填入实际配置值。
+- 开发：`cp env.grapery-agent.dev.example .env`
+- 生产字段参考：`env.grapery-agent.prod.example`（CI 自动生成远端 `.env`）
 
 ## 运行
 
 ```bash
 go run cmd/server/main.go
 ```
+
+## 部署
+
+Dev/prod 通过 GitHub Actions 构建镜像并部署到 ECS；公网入口由 ngx 反向代理。详见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。
