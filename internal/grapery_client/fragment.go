@@ -8,18 +8,29 @@ import (
 // ============ Fragment Generation ============
 
 type GenerateFragmentRequest struct {
-	UserInput              string   `json:"userInput"`
-	ImageUrls              []string `json:"imageUrls,omitempty"`
-	ImageCount             int      `json:"imageCount"`
-	Style                  string   `json:"style"`
-	Mood                   string   `json:"mood,omitempty"`
-	Length                 string   `json:"length,omitempty"`
-	Language               string   `json:"language"`
-	Visibility             string   `json:"visibility"`
-	AspectRatio            string   `json:"aspectRatio,omitempty"`
-	ConsistencyLevel       string   `json:"consistencyLevel,omitempty"`
-	EnableReferenceAssets  *bool    `json:"enableReferenceAssets,omitempty"`
-	IncludeGenerationTrace bool     `json:"includeGenerationTrace,omitempty"`
+	UserInput              string                  `json:"userInput"`
+	ImageUrls              []string                `json:"imageUrls,omitempty"`
+	ReferenceSlots         []FragmentReferenceSlot `json:"referenceSlots,omitempty"`
+	ImageCount             int                     `json:"imageCount"`
+	Style                  string                  `json:"style"`
+	Mood                   string                  `json:"mood,omitempty"`
+	Length                 string                  `json:"length,omitempty"`
+	Language               string                  `json:"language"`
+	Visibility             string                  `json:"visibility"`
+	AspectRatio            string                  `json:"aspectRatio,omitempty"`
+	ConsistencyLevel       string                  `json:"consistencyLevel,omitempty"`
+	EnableReferenceAssets  *bool                   `json:"enableReferenceAssets,omitempty"`
+	IncludeGenerationTrace bool                    `json:"includeGenerationTrace,omitempty"`
+}
+
+type FragmentReferenceSlot struct {
+	Key        string `json:"key"`
+	Label      string `json:"label"`
+	Kind       string `json:"kind"`
+	Required   bool   `json:"required,omitempty"`
+	InputType  string `json:"inputType,omitempty"`
+	ImageURL   string `json:"imageUrl,omitempty"`
+	HelperText string `json:"helperText,omitempty"`
 }
 
 type GenerateFragmentResponse struct {
@@ -34,16 +45,18 @@ type FragmentTaskStatus struct {
 	Status      string              `json:"status"`
 	Progress    float64             `json:"progress"`
 	CurrentStep string              `json:"currentStep"`
+	MessageKey  string              `json:"messageKey,omitempty"`
 	Error       string              `json:"error,omitempty"`
 	CreatedAt   int64               `json:"createdAt"`
 	Result      *FragmentTaskResult `json:"result,omitempty"`
 }
 
 type FragmentTaskResult struct {
-	Content     string   `json:"content,omitempty"`
-	ImageUrls   []string `json:"imageUrls,omitempty"`
-	TokensUsed  int      `json:"tokensUsed,omitempty"`
-	AspectRatio string   `json:"aspectRatio,omitempty"`
+	Content       string                  `json:"content,omitempty"`
+	ImageUrls     []string                `json:"imageUrls,omitempty"`
+	TokensUsed    int                     `json:"tokensUsed,omitempty"`
+	AspectRatio   string                  `json:"aspectRatio,omitempty"`
+	StoryElements []FragmentReferenceSlot `json:"storyElements,omitempty"`
 }
 
 func (c *Client) GenerateFragment(ctx context.Context, req GenerateFragmentRequest) (*GenerateFragmentResponse, error) {
@@ -91,13 +104,13 @@ type StoryPrefillAIRequest struct {
 }
 
 type StoryPrefillAIResponse struct {
-	Title               string                `json:"title"`
-	Description         string                `json:"description"`
-	Summary             string                `json:"summary,omitempty"`
-	Style               string                `json:"style"`
-	Genre               string                `json:"genre,omitempty"`
-	Tags                []string              `json:"tags,omitempty"`
-	SuggestedCharacters []SuggestedCharacter  `json:"suggestedCharacters,omitempty"`
+	Title               string               `json:"title"`
+	Description         string               `json:"description"`
+	Summary             string               `json:"summary,omitempty"`
+	Style               string               `json:"style"`
+	Genre               string               `json:"genre,omitempty"`
+	Tags                []string             `json:"tags,omitempty"`
+	SuggestedCharacters []SuggestedCharacter `json:"suggestedCharacters,omitempty"`
 }
 
 type SuggestedCharacter struct {

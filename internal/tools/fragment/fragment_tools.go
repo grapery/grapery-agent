@@ -18,16 +18,18 @@ func NewExtractElementsTool(client *grapery_client.Client) (tool.InvokableTool, 
 		"从用户输入中提取故事元素，生成内容大纲和 VisualBible（风格圣经、角色定义、道具、场景设定）",
 		func(ctx context.Context, input *ExtractElementsInput) (*ExtractElementsOutput, error) {
 			resp, err := client.GenerateFragment(ctx, grapery_client.GenerateFragmentRequest{
-				UserInput:  input.UserInput,
-				ImageUrls:  input.ReferenceImages,
-				ImageCount: input.ImageCount,
-				Style:      input.Style,
-				Mood:       input.Mood,
-				Length:     input.Length,
-				Language:   input.Language,
-				Visibility: input.Visibility,
-				AspectRatio:       input.AspectRatio,
-				ConsistencyLevel:  input.ConsistencyLevel,
+				UserInput:              input.UserInput,
+				ImageUrls:              input.ReferenceImages,
+				ImageCount:             input.ImageCount,
+				Style:                  input.Style,
+				Mood:                   input.Mood,
+				Length:                 input.Length,
+				Language:               input.Language,
+				Visibility:             input.Visibility,
+				AspectRatio:            input.AspectRatio,
+				ConsistencyLevel:       input.ConsistencyLevel,
+				EnableReferenceAssets:  input.EnableReferenceAssets,
+				IncludeGenerationTrace: input.IncludeGenerationTrace,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("extract elements failed: %w", err)
@@ -159,8 +161,10 @@ type ExtractElementsInput struct {
 	Length            string   `json:"length,omitempty" jsonschema:"description=故事长度,short/medium/long"`
 	Language          string   `json:"language,omitempty" jsonschema:"description=语言,zh-Hans/en/ja"`
 	Visibility        string   `json:"visibility,omitempty" jsonschema:"description=可见性,public/followers/private"`
-	AspectRatio       string   `json:"aspect_ratio,omitempty" jsonschema:"description=图片比例,1:1/16:9/9:16/3:4/4:3"`
-	ConsistencyLevel  string   `json:"consistency_level,omitempty" jsonschema:"description=一致性级别,off/standard/strong"`
+	AspectRatio            string `json:"aspect_ratio,omitempty" jsonschema:"description=图片比例,1:1/16:9/9:16/3:4/4:3"`
+	ConsistencyLevel       string `json:"consistency_level,omitempty" jsonschema:"description=一致性级别,off/standard/strong"`
+	EnableReferenceAssets  *bool  `json:"enable_reference_assets,omitempty"`
+	IncludeGenerationTrace bool   `json:"include_generation_trace,omitempty"`
 }
 
 type ExtractElementsOutput struct {
@@ -254,12 +258,19 @@ type PrefillStoryInput struct {
 }
 
 type PrefillStoryOutput struct {
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Summary     string   `json:"summary,omitempty"`
-	Style       string   `json:"style"`
-	Genre       string   `json:"genre,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
+	Title               string                     `json:"title"`
+	Description         string                     `json:"description"`
+	Summary             string                     `json:"summary,omitempty"`
+	Style               string                     `json:"style"`
+	Genre               string                     `json:"genre,omitempty"`
+	Tags                []string                   `json:"tags,omitempty"`
+	SuggestedCharacters []PrefillSuggestedCharacter `json:"suggested_characters,omitempty"`
+}
+
+type PrefillSuggestedCharacter struct {
+	Name       string `json:"name"`
+	Role       string `json:"role,omitempty"`
+	Background string `json:"background,omitempty"`
 }
 
 func NewConvertToStoryTool(client *grapery_client.Client) (tool.InvokableTool, error) {
@@ -300,14 +311,22 @@ func NewPrefillStoryTool(client *grapery_client.Client) (tool.InvokableTool, err
 			if err != nil {
 				return nil, fmt.Errorf("prefill story: %w", err)
 			}
-			return &PrefillStoryOutput{
-				Title:               resp.Title,
-				Description:         resp.Description,
-				Summary:             resp.Summary,
-				Style:               resp.Style,
-				Genre:               resp.Genre,
-				Tags:                resp.Tags,
-			}, nil
+			out := &PrefillStoryOutput{
+				Title:       resp.Title,
+				Description: resp.Description,
+				Summary:     resp.Summary,
+				Style:       resp.Style,
+				Genre:       resp.Genre,
+				Tags:        resp.Tags,
+			}
+			for _, c := range resp.SuggestedCharacters {
+				out.SuggestedCharacters = append(out.SuggestedCharacters, PrefillSuggestedCharacter{
+					Name:       c.Name,
+					Role:       c.Role,
+					Background: c.Background,
+				})
+			}
+			return out, nil
 		},
 	)
 }

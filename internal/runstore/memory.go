@@ -19,6 +19,8 @@ type Store interface {
 	UpdateRun(ctx context.Context, id string, fn func(*domain.GenerationRun)) error
 	ListRuns(ctx context.Context, kind domain.RunKind, limit int) []*domain.GenerationRun
 	RecordToolCall(ctx context.Context, runID string, rec domain.ToolCallRecord) error
+	RecordStepAudit(ctx context.Context, runID string, rec domain.GenerationStepAudit) error
+	CancelRun(ctx context.Context, id string) error
 	AppendArtifact(ctx context.Context, art *domain.RLArtifact) error
 	ListArtifacts(ctx context.Context, typ domain.RLArtifactType, limit int) []*domain.RLArtifact
 }
@@ -104,6 +106,37 @@ func (s *MemoryStore) RecordToolCall(_ context.Context, runID string, rec domain
 	})
 }
 
+// RecordStepAudit appends a generation step audit row. Each call is a distinct
+// attempt; failed/retried attempts are never overwritten by later successes.
+func (s *MemoryStore) RecordStepAudit(_ context.Context, runID string, rec domain.GenerationStepAudit) error {
+	return s.UpdateRun(context.Background(), runID, func(r *domain.GenerationRun) {
+		rec.Sequence = len(r.StepAudits) + 1
+		rec.RunID = runID
+		if rec.ID == "" {
+			rec.ID = "audit_" + uuid.New().String()
+		}
+		if rec.BusinessType == "" {
+			rec.BusinessType = r.Kind
+		}
+		if rec.AgentVersion == "" {
+			rec.AgentVersion = r.AgentVersion
+		}
+		r.StepAudits = append(r.StepAudits, rec)
+	})
+}
+
+func (s *MemoryStore) CancelRun(_ context.Context, id string) error {
+	return s.UpdateRun(context.Background(), id, func(r *domain.GenerationRun) {
+		switch r.Status {
+		case domain.RunStatusSucceeded, domain.RunStatusFailed, domain.RunStatusCancelled:
+			return
+		default:
+			r.Status = domain.RunStatusCancelled
+			r.Error = "cancelled by client"
+		}
+	})
+}
+
 func (s *MemoryStore) AppendArtifact(_ context.Context, art *domain.RLArtifact) error {
 	if art.ID == "" {
 		art.ID = "art_" + uuid.New().String()
@@ -149,6 +182,9 @@ func cloneRun(r *domain.GenerationRun) *domain.GenerationRun {
 	if len(r.ToolCalls) > 0 {
 		cp.ToolCalls = append([]domain.ToolCallRecord(nil), r.ToolCalls...)
 	}
+	if len(r.StepAudits) > 0 {
+		cp.StepAudits = append([]domain.GenerationStepAudit(nil), r.StepAudits...)
+	}
 	if r.ContentIDs.FragmentID != "" || r.ContentIDs.StoryboardID != "" {
 		cp.ContentIDs = r.ContentIDs
 	}
@@ -193,4 +229,34 @@ func TracedCall(ctx context.Context, store Store, toolName string, input map[str
 	}
 	_ = store.RecordToolCall(ctx, runID, rec)
 	return out, err
+}
+
+// TracedStep records a GenerationStepAudit for the active run while executing fn.
+// It captures a started/succeeded/failed attempt with duration; callers may enrich
+// the base record (prompt, provider, model, tokens, refs) via the base argument.
+func TracedStep(ctx context.Context, store Store, base domain.GenerationStepAudit, fn func(context.Context) error) error {
+	runID, ok := RunIDFromContext(ctx)
+	if !ok || store == nil {
+		if fn == nil {
+			return nil
+		}
+		return fn(ctx)
+	}
+	start := time.Now()
+	var err error
+	if fn != nil {
+		err = fn(ctx)
+	}
+	end := time.Now()
+	base.StartedAt = start
+	base.EndedAt = end
+	base.DurationMs = end.Sub(start).Milliseconds()
+	if err != nil {
+		base.Status = domain.StepFailed
+		base.ErrorMessage = err.Error()
+	} else if base.Status == "" {
+		base.Status = domain.StepSucceeded
+	}
+	_ = store.RecordStepAudit(ctx, runID, base)
+	return err
 }

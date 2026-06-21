@@ -8,6 +8,7 @@ const FragmentDomainKnowledge = `━━━━━━━━━━━━━━━�
 一次完整的碎片生成会经过后端管线产出：
 1. elements（故事元素）：weather（情绪化天气）、objects（叙事道具）、scenes（五感空间）、timeOfDay（光线情绪）、location（有故事感的空间）、characters（视觉身份卡）、tendency（一行宣发语）
 2. visualBible（视觉圣经）：styleBible（画法/线稿/色调/光影）、characters（角色锚点，含 immutableTraits/negativeTraits）、props（道具锚点）、locations（场景锚点）
+   - **visualBible.characters[].name 必填**：与正文/用户称呼一致；禁止「角色一」「无名氏」；下游故事角色物化依赖稳定 name
 3. content（故事正文）
 4. scenes（分镜格）：每格含 sceneDesc（中文画面描述）、imagePrompt（英文 8 层视觉指令）、referenceKeys、entityBindings、comicTexts
 
@@ -35,14 +36,29 @@ location（地点）—— 有故事感的空间：
 - 好："一个被废弃的室内游乐场，旋转木马还在缓慢转，彩灯只剩红和蓝还亮着，地上散着褪色的入场券"
 - 差："游乐场" / "火车站"
 
-characters（人物）—— 视觉身份卡（最多 3 个）：
-- 好："瘦高的女生，穿oversized黑卫衣帽子压得很低，露出一截染了蓝色的发尾，手里攥着一杯已经凉透的拿铁"
-- 差："一个女生" / "一个男人"
+characters（叙事主体，不限人类）—— 视觉身份卡（最多 3 个）：
+- 好（人）："瘦高的女生，穿oversized黑卫衣帽子压得很低，露出一截染了蓝色的发尾，手里攥着一杯已经凉透的拿铁"
+- 好（动物）："（橘猫豆包）三花橘猫蹲在窗台外侧，瞳孔缩成细线盯着楼下空车位"
+- 好（拟人器物）："（红伞小满）半透明红伞，伞骨弯折处像皱眉，伞尖滴水在台阶上画出一道歪线"
+- 差："一个女生" / "一只猫" / "一把伞"（缺少可画细节与叙事姿态）
 
 tendency（倾向）—— 一行宣发语：
 - 好："所有出口都标着入口的方向"
 - 好："她等的那班列车三年前就停运了"
 - 差："悬疑风格" / "温馨治愈"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+剧情拓展（与漫画视觉层同等重要）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- 格与格/场景与场景之间须有叙事增量：局势、认知或情绪至少一项变化；禁止连续多格仅换机位、剧情静止
+- 微型因果链：触发→反应→后果 / 误解→揭穿 / 蓄力→爆发 等至少一种须可追溯
+- 故事脊柱：内部先确定主体、欲望、阻碍、行动、代价/悬念；输出不必列出，但读者应能从画面与文案感受到
+- 每格至少承担一个 beat role：setup / inciting / attempt / reversal / cost / payoff；多格时不能全部是 setup
+- 主角可以是人物、动物、拟人器物或静物；须用可观察的目标/恐惧/执念与动作链表达，少用大段心理说明
+- 静物拟人须有可画表演暗示（倾斜、裂纹、贴纸眼、滚落、争抢光斑），禁止只写「很有感情」
+- 从用户输入/参考图合理外推，禁止与锚点无关的宏大设定
+- 质量自检：删掉漫画特效后仍应讲得通；只看 captions/sceneDesc 也应能用“因为/但是/所以”串联
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 创作心法
@@ -236,21 +252,21 @@ entityBindings 写法（多人物一致性约束）：
 - style（风格）：fantasy/sci-fi/romance/thriller 等，匹配用户描述的故事类型
 - mood（氛围）：happy/sad/mysterious/romantic，决定整体情绪基调
 - image_count：1 格选最有冲击力的瞬间；2 格用"认知落差"（建立预期→打破预期）；3 格可用假结局/环形结构；3-6 格允许非线性叙事、视角突变、氛围留白
-- consistency_level：
-  · off：最快，不生成参考资产，适合快速验证
-  · standard：平衡，为核心角色生成参考锚点图
-  · strong：最一致但最慢，所有角色/道具/场景都生成参考图，跨图一致性最高
-- aspect_ratio：1:1 适合单角色特写；16:9 适合横幅叙事；9:16 适合手机竖屏；3:4/4:3 适合人物为主
+- consistency_level：off | standard | strong
+- enable_reference_assets：显式控制是否生成参考锚点图（nil 时由 consistency_level 决定）
+- include_generation_trace：调试时返回 generationTrace / consistencyIssues
+- aspect_ratio：1:1 / 16:9 / 9:16 / 3:4 / 4:3
 - 如果用户提供了参考图片，务必在 reference_images 中传入
+- **参考图单图多面板**需求应切换 FragmentPanelCreator Agent（本 Agent 不负责 panel 管线）
 
 【碎片转故事流程】
 当碎片生成完成且用户满意后，可引导用户将碎片转化为完整故事：
 1. 先用 prefill_story 获取 AI 建议的故事标题、描述、角色、风格（注意：每个碎片只能转一次，转过后不可重复）
 2. 将建议展示给用户，让用户确认或修改
 3. 用 convert_to_story 执行转换（传入用户确认后的值）
-4. 转换会创建一个 Story 记录（draft 状态），但不会自动创建故事板
-5. 提醒用户可以继续在故事中创建故事板（使用 StoryboardDirector 的 create_storyboard）
-6. prefill_story 返回的 suggestedCharacters 是从碎片视觉圣经中提取的角色候选，可辅助后续角色创建
+4. 转换会创建一个 Story 记录（draft 状态），不会自动创建故事板
+5. handoff：返回 storyId；后续故事板/角色请由用户切换对应 Agent 或上层编排
+6. prefill_story 的 suggestedCharacters 来自 visualBible，可 handoff 给 CharacterDesigner
 
 【人机协作时机】
 以下情况使用 ask_user_feedback：

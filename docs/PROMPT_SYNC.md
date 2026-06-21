@@ -19,10 +19,13 @@
 | Agent | Instruction 组装 | 领域知识常量 |
 |-------|-------------------|--------------|
 | FragmentCreator | `prompt.FragmentCreatorInstruction` | `FragmentDomainKnowledge` |
+| FragmentPanelCreator | `prompt.FragmentPanelCreatorInstruction` | `FragmentPanelDomainKnowledge` |
 | CharacterDesigner | `prompt.CharacterDesignerInstruction` | `CharacterDomainKnowledge` |
 | StoryboardDirector | `prompt.StoryboardDirectorInstruction` | `StoryboardDomainKnowledge` |
 | BranchExplorer | `prompt.BranchExplorerInstruction` | `BranchDomainKnowledge` |
 | （无）Story | — | 见 `Catalog()` story 条目 |
+
+**独立原则**：每类 Agent 工具集不跨域；跨阶段仅 handoff ID，由用户或上层编排切换 Agent。
 
 机器可读映射：`internal/prompt/catalog.go` 的 `Catalog()`。  
 漂移检测：`go test ./internal/prompt/ -run TestGraperyPromptAnchors`。
@@ -35,10 +38,18 @@
 |----|---------|---------------|
 | 权威 prompt | `fragment_generation_service.go` → `buildExtractionAndStoryPrompt` | `FragmentDomainKnowledge`（浓缩） |
 | 场景扩写 / 出图 | `fragment_generation_huoshan_scenes.go`, `buildFragmentSceneImagePrompt` | 未收录 |
-| 多面板规划 | `fragment_panel_plan_prompts.go` | 未收录 |
-| Agent 版本 | — | `fragment_creator:v1` |
-| 对齐程度 | **高**（元素示例、八层 imagePrompt、漫画语言、参考图四阶段） | |
-| 已知差距 | JSON 硬性 schema、panel 管线 | |
+| 多面板规划 | `fragment_panel_plan_prompts.go` | **FragmentPanelCreator** 独立 Agent |
+| Agent 版本 | — | `fragment_creator:v1`（文本）；`fragment_panel_creator:v1`（参考图多面板） |
+| 对齐程度 | **高** | |
+| 已知差距 | JSON 硬性 schema 仍在 grapery | |
+
+### 参考图多面板碎片（FragmentPanel）
+
+| 项 | grapery | grapery-agent |
+|----|---------|---------------|
+| 权威 prompt | `fragment_panel_plan_prompts.go` | `FragmentPanelDomainKnowledge` |
+| API | `POST /fragment-panels/generate` | tools + `generation/fragment-panels` |
+| Agent 版本 | — | `fragment_panel_creator:v1` |
 
 ### 故事角色（Character）
 
@@ -48,7 +59,8 @@
 | 出图模板 | character 服务内英文 portrait/avatar/三视图 | Instruction 内模板说明 |
 | Agent 版本 | — | `character_designer:v1` |
 | 对齐程度 | **高**（10 字段语义一致） | |
-| 已知差距 | strict JSON 输出约束；`character-generation-tasks` 未暴露为 tool | |
+| 已知差距 | strict JSON 输出约束在 grapery | |
+| 异步任务 | `character-generation-tasks` | `start_character_gen_task` / `poll_character_gen_task` |
 
 ### 故事板（Storyboard）
 
@@ -58,7 +70,8 @@
 | 续写 / 旧管线 | `storyboard.go`, `narrator_pipeline.go` | 工具流程说明 |
 | Agent 版本 | — | `storyboard_director:v1` |
 | 对齐程度 | **中**（概念对齐，无完整 schema） | |
-| 已知差距 | `comicFunction` 枚举在 agent 中不完整；chat 默认 `generate_storyboard_content` 与 redesign `generate/structure` 易混淆 | |
+| 已知差距 | 无完整 JSON schema（仍在 grapery） | |
+| 工作流 | create 后台 redesign | `create` → `get_generation_progress`；`generate_storyboard_content` 为次要路径 |
 
 ### 多分支（Branch）
 

@@ -10,6 +10,9 @@ services:
       - "${SERVER_PORT:-9020}:9020"
     env_file:
       - .env
+    # Agent access token（见 env.grapery-agent.*.example）：AGENT_TOKEN_VERIFY_KEY、
+    # AGENT_ACCESS_TOKEN_REQUIRED、AGENT_TOKEN_REPLAY_CACHE_ENABLED、AGENT_EXEC_FRAGMENT_PANEL_ENABLED；
+    # GRAPERY_API_KEY 需与 grapery 的 GRAPERY_INTERNAL_API_KEY 一致
     volumes:
       - ./data/agent-artifacts:/app/data/agent-artifacts
     networks:

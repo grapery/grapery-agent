@@ -287,17 +287,16 @@ func AllTools(client *grapery_client.Client) ([]tool.BaseTool, error) {
 // ToolInfos 返回所有工具的信息摘要（用于 Agent Instruction）
 func ToolInfos() string {
 	return `可用工具：
-1. create_storyboard - 创建故事板
-2. generate_storyboard_content - 生成故事内容（第一步）
-3. generate_scene_image - 为单个场景生成图片
-4. generate_all_scene_images - 批量为所有场景生成图片
-5. generate_scene_video - 为场景生成视频
-6. continue_storyboard - 创建续写分支（平行宇宙）
-7. regenerate_structure - 重新生成故事板结构（视觉圣经+场景规划）
-8. generate_comic_page - 为单个场景生成漫画页（多格拼贴）
-9. generate_all_comic_pages - 批量为所有场景生成漫画页
-10. get_generation_progress - 查询故事板生成进度
-11. ask_user_feedback - 人机协作`
+1. create_storyboard - 创建故事板（带 raw_input；后台自动执行 redesign 文本结构）
+2. get_generation_progress - 轮询故事板文本结构生成进度（create 后的主路径）
+3. regenerate_structure - 重新生成 Bible/场景结构（不满意时）
+4. generate_storyboard_content - 单独重跑 content 步骤（次要；已有 storyboard 时用）
+5. generate_scene_image - 为单个场景生成图片
+6. generate_all_scene_images - 批量为所有场景生成图片
+7. generate_comic_page / generate_all_comic_pages - 漫画页拼贴出图
+8. generate_scene_video - 为场景生成视频
+9. continue_storyboard - 创建续写分支（平行宇宙）
+10. ask_user_feedback - 人机协作`
 }
 
 // ============ 类型定义 ============

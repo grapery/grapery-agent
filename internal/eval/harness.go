@@ -97,6 +97,17 @@ func (h *Harness) startSeed(ctx context.Context, seed Seed) (*domain.GenerationR
 			PollIntervalSec: 3,
 			PollTimeoutSec:  120,
 		})
+	case "fragment_panel":
+		if seed.ReferenceImageURL == "" {
+			return nil, fmt.Errorf("fragment_panel seed requires referenceImageUrl")
+		}
+		return h.gen.StartFragmentPanel(ctx, domain.FragmentPanelGenerateInput{
+			UserInput:         seed.Prompt,
+			ReferenceImageURL: seed.ReferenceImageURL,
+			PanelCount:        3,
+			PollIntervalSec:   3,
+			PollTimeoutSec:    120,
+		})
 	case "story":
 		return h.gen.StartStory(ctx, domain.StoryGenerateInput{Prompt: seed.Prompt, Style: "literary"})
 	case "storyboard":

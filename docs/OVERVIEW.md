@@ -1,7 +1,18 @@
 # grapery-agent 功能说明
 
-`grapery-agent` 是 **Grapery 业务后端的编排层**：通过 Eino Agent 提供对话式创作助手，通过 Generation Run API 提供可追踪的批量/异步生成，并为多分支探索与 RL 样本导出预留数据面。  
-**内容生成的 LLM 提示词与模型调用主要在 `grapery` 服务内执行**；本服务负责路由、工具编排、Run 追踪与 Agent 侧「产品/流程」说明（见 [PROMPT_SYNC.md](./PROMPT_SYNC.md)）。
+`grapery-agent` 是与 `grapery` **平行对外**的「聊天 / 生成执行」服务：通过 Eino Agent 提供对话式创作助手，通过 Generation Run API 提供可追踪的批量/异步生成，并为多分支探索与 RL 样本导出预留数据面。
+本服务负责路由、工具编排、Run 追踪、内容/图片/视频生成执行、流式推送与按授权进行的用量统计；Agent 侧「产品/流程」说明见 [PROMPT_SYNC.md](./PROMPT_SYNC.md)。
+
+## 0. 服务边界（Parallel Agent Access Token）
+
+> 权威方与执行方分离：**`grapery` 是 auth/quota 权威方**，**`grapery-agent` 是平行对外的聊天/生成执行服务**，`vippay` 保持不变。
+
+- **grapery（控制面）**：用户 JWT 鉴权、活跃用户/会员/限流/额度策略，并签发短期 **Agent Access Token**（`POST /api/v1/agent-access-tokens`）。
+- **grapery-agent（执行面）**：校验入站的 Agent Access Token（`X-Agent-Access-Token`），承载聊天/生成流，按 grapery 授权规则读取缓存/专用 API/受控 DB 做用量统计与变更。出站访问 grapery 仍使用转发的用户 JWT（`Authorization: Bearer`）。
+- **客户端流程**：① 用 JWT 调 grapery 取 Agent Access Token → ② 携带 `X-Agent-Access-Token` 经 ngx 直连 grapery-agent 的聊天/生成流。
+- **Token 契约**：HMAC-SHA256 签名，`iss=grapery`、`aud=grapery-agent`，短期有效（默认 300s），claims 含 `userId/agent/operation/kind/quotaMode/jti/exp` 等。grapery 的 `AGENT_TOKEN_SIGNING_KEY` 必须与 agent 的 `AGENT_TOKEN_VERIFY_KEY` 一致。
+- **开关**：grapery `AGENT_PUBLIC_PARALLEL_ENABLED`、`AGENT_TOKEN_REPLAY_CACHE_ENABLED`；agent `AGENT_ACCESS_TOKEN_REQUIRED`（强制校验）。**fragment-panel 为迁移试点**：当 `AGENT_TOKEN_VERIFY_KEY` 已配置时，其聊天/生成端点始终强制 token。
+- **审计**：所有迁移到 agent 的生成步骤，需通过 `GenerationStepAudit` 记录提示词、（含失败/重试的）结果与每步 token 用量；失败/重试作为独立 attempt，禁止被成功结果覆盖。
 
 ---
 
@@ -10,7 +21,8 @@
 | 类别 | 能力 | 入口 | 是否经过 Eino Agent LLM |
 |------|------|------|-------------------------|
 | 健康检查 | 服务存活 | `GET /health` | 否 |
-| 对话式创作 | 故事碎片 | `POST /api/v1/agent/fragment/chat` | 是 |
+| 对话式创作 | 文本故事碎片 | `POST /api/v1/agent/fragment/chat` | 是 |
+| 对话式创作 | 参考图多面板碎片 | `POST /api/v1/agent/fragment-panel/chat` | 是 |
 | 对话式创作 | 故事角色 | `POST /api/v1/agent/character/chat` | 是 |
 | 对话式创作 | 故事板 | `POST /api/v1/agent/storyboard/chat` | 是 |
 | 对话式创作 | 多分支探索 | `POST /api/v1/agent/branch/chat` | 是 |
@@ -23,9 +35,10 @@
 
 | Agent 名称 | 职责 | Agent 版本 ID | 工具包 |
 |------------|------|---------------|--------|
-| **FragmentCreator** | 碎片生成、增强 prompt、转故事 | `fragment_creator:v1` | `internal/tools/fragment` |
-| **CharacterDesigner** | 角色属性、创建、头像/肖像/三视图 | `character_designer:v1` | `internal/tools/character` |
-| **StoryboardDirector** | 故事板创建、内容/结构、出图、漫画页、续写 | `storyboard_director:v1` | `internal/tools/storyboard` |
+| **FragmentCreator** | 文本碎片、增强 prompt、转故事 | `fragment_creator:v1` | `internal/tools/fragment` |
+| **FragmentPanelCreator** | 参考图多面板碎片 | `fragment_panel_creator:v1` | `internal/tools/fragment_panel` |
+| **CharacterDesigner** | 角色属性/异步任务、碎片候选、头像/肖像/三视图 | `character_designer:v1` | `internal/tools/character` |
+| **StoryboardDirector** | 故事板 create+poll、结构重生成、出图、漫画页 | `storyboard_director:v1` | `internal/tools/storyboard` |
 | **BranchExplorer** | 平行宇宙分支续写策略 | `branch_explorer:v1` | `internal/tools/branch` |
 
 各 Agent 另挂载公共工具 **`ask_user_feedback`**（人机协作中断）。
@@ -35,9 +48,10 @@
 | Run 类型 `kind` | HTTP | 编排步骤（grapery API） | Agent 版本 |
 |-----------------|------|-------------------------|------------|
 | `fragment` | `POST /generation/fragments` | `fragments/generate` → 轮询 task | `fragment_creator:v1` |
+| `fragment_panel` | `POST /generation/fragment-panels` | `fragment-panels/generate` → 轮询 task | `fragment_panel_creator:v1` |
 | `story` | `POST /generation/stories` | `ai/generate-story` → 轮询 AI task | `story_generator:v1` |
-| `storyboard` | `POST /generation/storyboards` | `create` → `generate/content` → 可选批量出图 | `storyboard_director:v1` |
-| `character` | `POST /generation/characters` | `characters/generate` → 可选 create / portrait / avatar | `character_designer:v1` |
+| `storyboard` | `POST /generation/storyboards` | `create` → poll redesign → 可选批量出图 | `storyboard_director:v1` |
+| `character` | `POST /generation/characters` | 同步 attrs 或 `useAsyncTask` → character-generation-tasks | `character_designer:v1` |
 | `branch_batch` | `POST /generation/branches` | 每条策略 `continue_storyboard`（子 run） | `branch_explorer:v1` |
 
 Run 状态：`pending` → `running` → `waiting`（异步）→ `succeeded` | `failed` | `cancelled`。
@@ -356,9 +370,10 @@ Query：`?stream=true` 启用流式（Eino streaming）。
 
 | 业务 | Agent 版本 | Agent Instruction 位置 | grapery 权威 Prompt | Role | Agent 覆盖摘要 | grapery 独有（未写入 Agent） |
 |------|------------|--------------------------|---------------------|------|----------------|------------------------------|
-| 故事碎片 | `fragment_creator:v1` | `FragmentIntro` + `FragmentDomainKnowledge` | `fragment_generation_service.go` → `buildExtractionAndStoryPrompt` | orchestration | 元素质量标准、八层 imagePrompt、漫画叙事、参考图四阶段、工具流程 | 多面板 `fragment_panel_plan_prompts.go`、panel 出图、comic style 命名 |
-| 故事角色 | `character_designer:v1` | `CharacterIntro` + `CharacterDomainKnowledge` | `character.go` → `GenerateCharacterWithAI` | orchestration | 10 字段语义、出图英文模板 | strict JSON 输出约束；`character-generation-tasks` |
-| 故事板 | `storyboard_director:v1` | `StoryboardIntro` + `StoryboardDomainKnowledge` | `storyboard_redesign_prompts.go`（主）；`storyboard.go`（旧） | orchestration + reference | Bible-Beats-Scenes、comicFunction、layout、panelShape 概念 | 完整 JSON schema 校验；`storyboard_generation.go` 出图细节 |
+| 文本故事碎片 | `fragment_creator:v1` | `FragmentIntro` + `FragmentDomainKnowledge` | `fragment_generation_service.go` → `buildExtractionAndStoryPrompt` | orchestration | 元素质量标准、八层 imagePrompt、转故事 handoff | scene 扩写细节、comic style 命名 |
+| 参考图多面板碎片 | `fragment_panel_creator:v1` | `FragmentPanelIntro` + `FragmentPanelDomainKnowledge` | `fragment_panel_plan_prompts.go` | orchestration | panel plan、visualBible、参数决策 | Huoshan 组图出图细节 |
+| 故事角色 | `character_designer:v1` | `CharacterIntro` + `CharacterDomainKnowledge` | `character.go` → `GenerateCharacterWithAI` | orchestration | 10 字段、async task tools、碎片候选 | strict JSON 在 grapery |
+| 故事板 | `storyboard_director:v1` | `StoryboardIntro` + `StoryboardDomainKnowledge` | `storyboard_redesign_prompts.go`（主）；`storyboard.go`（旧） | orchestration + reference | create→poll 主路径、comicFunction、panelShape | 完整 JSON schema；comic page 出图细节 |
 | 多分支 | `branch_explorer:v1` | `BranchIntro` + `BranchDomainKnowledge` | `narrator_pipeline.go` 续写 | strategy + reference | 策略轴、差异化约束、`BuildBranchRawInput` | FateSnapshot、800–1500 字正文、场景 JSON 规划 |
 | 故事文本 | `story_generator:v1` | **无 Chat Agent** | `story.go` enrich；`ai_handler.go` `generate-story` | reference | — | 无 StoryCreator instruction |
 | 分支策略文案 | — | `branch_strategies.go` | （作为 `continue` 的 `rawInput` 前缀） | strategy | hopeful_turn / darker_twist / comedic_detour / mystery_reveal | 完整 narrator 上下文 |

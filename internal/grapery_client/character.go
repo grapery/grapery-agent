@@ -37,10 +37,12 @@ type CreateCharacterRequest struct {
 	DressPreference string   `json:"dressPreference,omitempty"`
 	StoryID         string   `json:"storyId"`
 	IsPublic        bool     `json:"isPublic"`
-	SourceType      string   `json:"sourceType"`
-	ReferenceImage  string   `json:"referenceImage,omitempty"`
-	Tags            []string `json:"tags,omitempty"`
-	NeedsPortrait   bool     `json:"needsPortrait,omitempty"`
+	SourceType                 string   `json:"sourceType"`
+	ReferenceImage             string   `json:"referenceImage,omitempty"`
+	SourceFragmentID           string   `json:"sourceFragmentId,omitempty"`
+	SourceFragmentCharacterKey string   `json:"sourceFragmentCharacterKey,omitempty"`
+	Tags                       []string `json:"tags,omitempty"`
+	NeedsPortrait              bool     `json:"needsPortrait,omitempty"`
 }
 
 type CharacterResponse struct {
@@ -87,29 +89,57 @@ type ThreeViews struct {
 }
 
 type CharacterGenTaskRequest struct {
-	StoryID                      string          `json:"storyId"`
-	SourceType                   string          `json:"sourceType"`
-	Name                         string          `json:"name,omitempty"`
-	Prompt                       string          `json:"prompt,omitempty"`
-	Description                  string          `json:"description,omitempty"`
-	Background                   string          `json:"background,omitempty"`
-	Personality                  string          `json:"personality,omitempty"`
-	Appearance                   string          `json:"appearance,omitempty"`
-	ReferenceImage               string          `json:"referenceImage,omitempty"`
-	SourceFragmentID             string          `json:"sourceFragmentId,omitempty"`
-	SourceFragmentCharacterKey   string          `json:"sourceFragmentCharacterKey,omitempty"`
-	Suggestion                   *FragmentSuggestion `json:"suggestion,omitempty"`
+	StoryID                    string              `json:"storyId"`
+	SourceType                 string              `json:"sourceType"`
+	Name                       string              `json:"name,omitempty"`
+	Prompt                     string              `json:"prompt,omitempty"`
+	Description                string              `json:"description,omitempty"`
+	Background                 string              `json:"background,omitempty"`
+	Personality                string              `json:"personality,omitempty"`
+	ShortTermGoal              string              `json:"shortTermGoal,omitempty"`
+	LongTermGoal               string              `json:"longTermGoal,omitempty"`
+	HandlingStyle              string              `json:"handlingStyle,omitempty"`
+	CognitionRange             string              `json:"cognitionRange,omitempty"`
+	AbilityFeatures            string              `json:"abilityFeatures,omitempty"`
+	Appearance                 string              `json:"appearance,omitempty"`
+	DressPreference            string              `json:"dressPreference,omitempty"`
+	ReferenceImage             string              `json:"referenceImage,omitempty"`
+	SourceFragmentID           string              `json:"sourceFragmentId,omitempty"`
+	SourceFragmentCharacterKey string              `json:"sourceFragmentCharacterKey,omitempty"`
+	Suggestion                 *FragmentSuggestion `json:"suggestion,omitempty"`
 }
 
 type FragmentSuggestion struct {
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
-	Appearance  string `json:"appearance,omitempty"`
+	Key                 string `json:"key,omitempty"`
+	Name                string `json:"name,omitempty"`
+	Role                string `json:"role,omitempty"`
+	Description         string `json:"description,omitempty"`
+	Appearance          string `json:"appearance,omitempty"`
+	Background          string `json:"background,omitempty"`
+	ReferenceImage      string `json:"referenceImage,omitempty"`
+	ReferenceImageURL   string `json:"referenceImageUrl,omitempty"`
+	AlreadyCreated      bool   `json:"alreadyCreated,omitempty"`
+	ExistingCharacterID string `json:"existingCharacterId,omitempty"`
 }
 
-type CharacterGenTaskResponse struct {
-	TaskID string `json:"taskId"`
-	Status string `json:"status"`
+type CharacterGenTask struct {
+	ID                         string             `json:"id"`
+	StoryID                    string             `json:"storyId"`
+	CharacterID                string             `json:"characterId,omitempty"`
+	SourceType                 string             `json:"sourceType"`
+	SourceFragmentID           string             `json:"sourceFragmentId,omitempty"`
+	SourceFragmentCharacterKey string             `json:"sourceFragmentCharacterKey,omitempty"`
+	Status                     string             `json:"status"`
+	Progress                   int                `json:"progress"`
+	CurrentStep                string             `json:"currentStep,omitempty"`
+	ErrorMessage               string             `json:"errorMessage,omitempty"`
+	Character                  *CharacterResponse `json:"character,omitempty"`
+}
+
+type FragmentCharacterSuggestionsResponse struct {
+	StoryID      string              `json:"storyId"`
+	FragmentID   string              `json:"fragmentId"`
+	Suggestions  []FragmentSuggestion `json:"suggestions"`
 }
 
 func (c *Client) GenerateCharacterAttrs(ctx context.Context, req GenerateCharacterAttrsRequest) (*GeneratedCharacterAttrs, error) {
@@ -152,9 +182,25 @@ func (c *Client) GenerateCharacterThreeViews(ctx context.Context, characterID st
 	return &resp, nil
 }
 
-func (c *Client) StartCharacterGenTask(ctx context.Context, req CharacterGenTaskRequest) (*CharacterGenTaskResponse, error) {
-	var resp CharacterGenTaskResponse
+func (c *Client) StartCharacterGenTask(ctx context.Context, req CharacterGenTaskRequest) (*CharacterGenTask, error) {
+	var resp CharacterGenTask
 	if err := c.post(ctx, "/api/v1/character-generation-tasks", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Client) GetCharacterGenTask(ctx context.Context, taskID string) (*CharacterGenTask, error) {
+	var resp CharacterGenTask
+	if err := c.get(ctx, "/api/v1/character-generation-tasks/"+taskID, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Client) GetFragmentCharacterSuggestions(ctx context.Context, storyID string) (*FragmentCharacterSuggestionsResponse, error) {
+	var resp FragmentCharacterSuggestionsResponse
+	if err := c.get(ctx, "/api/v1/stories/"+storyID+"/fragment-character-suggestions", &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

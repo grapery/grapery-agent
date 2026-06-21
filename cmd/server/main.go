@@ -9,8 +9,8 @@ import (
 	"github.com/grapestree/fgrapery/grapery-agent/internal/config"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/generation"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/grapery_client"
-	"github.com/grapestree/fgrapery/grapery-agent/internal/runstore"
 	graperymodel "github.com/grapestree/fgrapery/grapery-agent/internal/model"
+	"github.com/grapestree/fgrapery/grapery-agent/internal/runstore"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/transport/http"
 
 	"github.com/cloudwego/eino/components/model"
@@ -49,12 +49,13 @@ func main() {
 
 	// 5. 创建 CheckPoint Store 与 Generation Run Store
 	checkpoint := http.NewInMemoryCheckPointStore()
-	runStore := runstore.NewMemoryStore()
-	genSvc := generation.NewService(client, runStore, cfg.Eino.TextProvider, cfg.Eino.TextModel)
-	genHandler := http.NewGenerationHandler(genSvc, runStore, cfg.Artifact.ExportDir)
+	memStore := runstore.NewMemoryStore()
+	runStore := runstore.NewAuditSyncStore(memStore, client, cfg.AgentAuth.AuditSyncEnabled && cfg.Grapery.APIKey != "")
+	genSvc := generation.NewService(client, runStore, cfg.Eino.TextProvider, cfg.Eino.TextModel, cfg.AgentAuth.ExecFragmentPanelEnabled)
+	genHandler := http.NewGenerationHandler(genSvc, runStore, cfg.Artifact.ExportDir, cfg.AgentAuth)
 
 	// 6. 创建 HTTP Handler
-	handler := http.NewHandler(registry, client, checkpoint, genHandler)
+	handler := http.NewHandler(registry, client, checkpoint, genHandler, cfg.AgentAuth)
 
 	// 7. 启动 HTTP 服务
 	r := gin.Default()
@@ -68,6 +69,8 @@ func main() {
 	log.Printf("grapery-agent starting on %s", addr)
 	log.Printf("Grapery backend: %s", cfg.Grapery.BaseURL)
 	log.Printf("Eino text provider: %s", cfg.Eino.TextProvider)
+	log.Printf("Agent access token: verifyKeySet=%t required=%t", cfg.AgentAuth.TokenVerifyKey != "", cfg.AgentAuth.AccessTokenRequired)
+	log.Printf("Agent chat: sync routes enabled at POST /api/v1/agent/{agent}/chat/sync")
 
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

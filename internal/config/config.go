@@ -3,13 +3,24 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
-	Server   ServerConfig
-	Grapery  GraperyConfig
-	Eino     EinoConfig
-	Artifact ArtifactConfig
+	Server    ServerConfig
+	Grapery   GraperyConfig
+	Eino      EinoConfig
+	Artifact  ArtifactConfig
+	AgentAuth AgentAuthConfig
+}
+
+// AgentAuthConfig 控制 grapery-agent 对入站请求的 Agent Access Token 校验。
+type AgentAuthConfig struct {
+	TokenVerifyKey           string
+	AccessTokenRequired      bool
+	ReplayCacheEnabled       bool
+	ExecFragmentPanelEnabled bool
+	AuditSyncEnabled         bool
 }
 
 type ArtifactConfig struct {
@@ -30,6 +41,8 @@ const (
 	SeedreamTimeoutFloor = 600
 	// DefaultHuoshanTextModel 与 grapery/internal/genai/providers/huoshan defaultTextModel 一致。
 	DefaultHuoshanTextModel = "doubao-seed-2-0-lite-260215"
+	// DefaultAgentTokenVerifyKey 与 grapery 的 AGENT_TOKEN_SIGNING_KEY 默认值一致。
+	DefaultAgentTokenVerifyKey = "voyager1990"
 )
 
 type EinoConfig struct {
@@ -65,6 +78,13 @@ func Load() *Config {
 		Artifact: ArtifactConfig{
 			ExportDir: getEnv("AGENT_ARTIFACT_DIR", "./data/agent-artifacts"),
 		},
+		AgentAuth: AgentAuthConfig{
+			TokenVerifyKey:           effectiveAgentTokenVerifyKey(),
+			AccessTokenRequired:      getEnvBool("AGENT_ACCESS_TOKEN_REQUIRED", false),
+			ReplayCacheEnabled:       getEnvBool("AGENT_TOKEN_REPLAY_CACHE_ENABLED", false),
+			ExecFragmentPanelEnabled: getEnvBool("AGENT_EXEC_FRAGMENT_PANEL_ENABLED", true),
+			AuditSyncEnabled:         getEnvBool("AUDIT_SYNC_TO_GRAPERY_ENABLED", true),
+		},
 		Eino: EinoConfig{
 			TextModel:      loadTextModel(),
 			TextProvider:   getEnv("EINO_TEXT_PROVIDER", getEnv("AI_DEFAULT_PROVIDER", "huoshan")),
@@ -79,7 +99,6 @@ func Load() *Config {
 	}
 }
 
-// loadTextModel 读取文本模型：EINO_TEXT_MODEL → HUOSHAN_TEXT_MODEL → 火山默认模型 ID。
 func loadTextModel() string {
 	if v := os.Getenv("EINO_TEXT_MODEL"); v != "" {
 		return v
@@ -88,6 +107,18 @@ func loadTextModel() string {
 		return v
 	}
 	return DefaultHuoshanTextModel
+}
+
+// effectiveAgentTokenVerifyKey 优先 AGENT_TOKEN_VERIFY_KEY；未设置时回落到
+// AGENT_TOKEN_SIGNING_KEY（与 grapery 共用 .env 时 source 一次即可对齐）。
+func effectiveAgentTokenVerifyKey() string {
+	if v := strings.TrimSpace(os.Getenv("AGENT_TOKEN_VERIFY_KEY")); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(os.Getenv("AGENT_TOKEN_SIGNING_KEY")); v != "" {
+		return v
+	}
+	return DefaultAgentTokenVerifyKey
 }
 
 func getEnv(key, fallback string) string {
@@ -102,6 +133,16 @@ func getEnvInt(key string, fallback int) int {
 		if i, err := strconv.Atoi(v); err == nil {
 			return i
 		}
+	}
+	return fallback
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
+		return v == "yes"
 	}
 	return fallback
 }

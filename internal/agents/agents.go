@@ -11,6 +11,7 @@ import (
 	"github.com/grapestree/fgrapery/grapery-agent/internal/tools/character"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/tools/common"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/tools/fragment"
+	"github.com/grapestree/fgrapery/grapery-agent/internal/tools/fragment_panel"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/tools/storyboard"
 
 	"github.com/cloudwego/eino/adk"
@@ -20,10 +21,11 @@ import (
 
 // AgentRegistry 管理所有 Agent 实例
 type AgentRegistry struct {
-	FragmentAgent   *adk.ChatModelAgent
-	CharacterAgent  *adk.ChatModelAgent
-	StoryboardAgent *adk.ChatModelAgent
-	BranchExplorer  *adk.ChatModelAgent
+	FragmentAgent      *adk.ChatModelAgent
+	FragmentPanelAgent *adk.ChatModelAgent
+	CharacterAgent     *adk.ChatModelAgent
+	StoryboardAgent    *adk.ChatModelAgent
+	BranchExplorer     *adk.ChatModelAgent
 }
 
 // NewRegistry 创建所有 Agent
@@ -31,6 +33,11 @@ func NewRegistry(ctx context.Context, chatModel model.BaseChatModel, textModel *
 	fragmentAgent, err := newFragmentAgent(ctx, chatModel, client, maxIterations)
 	if err != nil {
 		return nil, fmt.Errorf("create fragment agent: %w", err)
+	}
+
+	fragmentPanelAgent, err := newFragmentPanelAgent(ctx, chatModel, client, maxIterations)
+	if err != nil {
+		return nil, fmt.Errorf("create fragment panel agent: %w", err)
 	}
 
 	characterAgent, err := newCharacterAgent(ctx, chatModel, client, maxIterations)
@@ -49,10 +56,11 @@ func NewRegistry(ctx context.Context, chatModel model.BaseChatModel, textModel *
 	}
 
 	return &AgentRegistry{
-		FragmentAgent:   fragmentAgent,
-		CharacterAgent:  characterAgent,
-		StoryboardAgent: storyboardAgent,
-		BranchExplorer:  branchAgent,
+		FragmentAgent:      fragmentAgent,
+		FragmentPanelAgent: fragmentPanelAgent,
+		CharacterAgent:     characterAgent,
+		StoryboardAgent:    storyboardAgent,
+		BranchExplorer:     branchAgent,
 	}, nil
 }
 
@@ -71,6 +79,27 @@ func newFragmentAgent(ctx context.Context, chatModel model.BaseChatModel, client
 		Name:          "FragmentCreator",
 		Description:   "故事碎片创作 Agent，负责从用户输入生成完整的图文故事碎片，支持 AI 自主决策和人机协作",
 		Instruction:   prompt.FragmentCreatorInstruction(fragment.ToolInfos()),
+		Model:         chatModel,
+		ToolsConfig:   adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: tools}},
+		MaxIterations: maxIter,
+	})
+}
+
+func newFragmentPanelAgent(ctx context.Context, chatModel model.BaseChatModel, client *grapery_client.Client, maxIter int) (*adk.ChatModelAgent, error) {
+	tools, err := fragment_panel.AllTools(client)
+	if err != nil {
+		return nil, fmt.Errorf("create fragment panel tools: %w", err)
+	}
+	fbTool, err := common.NewAskUserFeedbackTool()
+	if err != nil {
+		return nil, fmt.Errorf("create feedback tool: %w", err)
+	}
+	tools = append(tools, fbTool)
+
+	return adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
+		Name:          "FragmentPanelCreator",
+		Description:   "参考图多面板故事碎片 Agent，从单张参考图生成多格漫画式碎片",
+		Instruction:   prompt.FragmentPanelCreatorInstruction(fragment_panel.ToolInfos()),
 		Model:         chatModel,
 		ToolsConfig:   adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: tools}},
 		MaxIterations: maxIter,

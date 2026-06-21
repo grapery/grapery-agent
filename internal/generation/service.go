@@ -12,18 +12,20 @@ import (
 
 // Service orchestrates non-chat generation runs with tracing.
 type Service struct {
-	client   *grapery_client.Client
-	store    runstore.Store
-	provider string
-	model    string
+	client            *grapery_client.Client
+	store             runstore.Store
+	provider          string
+	model             string
+	execFragmentPanel bool
 }
 
-func NewService(client *grapery_client.Client, store runstore.Store, textProvider, textModel string) *Service {
+func NewService(client *grapery_client.Client, store runstore.Store, textProvider, textModel string, execFragmentPanel bool) *Service {
 	return &Service{
-		client:   client,
-		store:    store,
-		provider: textProvider,
-		model:    textModel,
+		client:            client,
+		store:             store,
+		provider:          textProvider,
+		model:             textModel,
+		execFragmentPanel: execFragmentPanel,
 	}
 }
 
@@ -39,9 +41,24 @@ func (s *Service) ListRuns(ctx context.Context, kind domain.RunKind, limit int) 
 	return s.store.ListRuns(ctx, kind, limit)
 }
 
+func (s *Service) CancelRun(ctx context.Context, runID string) error {
+	if s.store == nil {
+		return fmt.Errorf("run store unavailable")
+	}
+	if err := s.store.CancelRun(ctx, runID); err != nil {
+		return err
+	}
+	s.settleQuota(ctx, domain.RunStatusCancelled, 0)
+	return nil
+}
+
+func (s *Service) ExecFragmentPanelEnabled() bool {
+	return s.execFragmentPanel
+}
+
 func (s *Service) finishRun(ctx context.Context, runID string, status domain.RunStatus, output map[string]any, content domain.ContentRef, tokens int, errMsg string) error {
 	now := time.Now()
-	return s.store.UpdateRun(ctx, runID, func(r *domain.GenerationRun) {
+	err := s.store.UpdateRun(ctx, runID, func(r *domain.GenerationRun) {
 		r.Status = status
 		r.Output = output
 		r.ContentIDs = content
@@ -51,6 +68,8 @@ func (s *Service) finishRun(ctx context.Context, runID string, status domain.Run
 		r.ModelProvider = s.provider
 		r.ModelName = s.model
 	})
+	s.settleQuota(ctx, status, tokens)
+	return err
 }
 
 func (s *Service) markRunning(ctx context.Context, runID string) {

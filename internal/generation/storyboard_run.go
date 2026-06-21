@@ -2,6 +2,7 @@ package generation
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/grapestree/fgrapery/grapery-agent/internal/domain"
@@ -11,8 +12,8 @@ import (
 
 func (s *Service) StartStoryboard(ctx context.Context, in domain.StoryboardGenerateInput) (*domain.GenerationRun, error) {
 	input := map[string]any{
-		"storyId":   in.StoryID,
-		"rawInput":  in.RawInput,
+		"storyId":    in.StoryID,
+		"rawInput":   in.RawInput,
 		"sceneCount": in.SceneCount,
 	}
 	run, err := s.store.CreateRun(ctx, domain.RunKindStoryboard, domain.AgentStoryboardDirector, in.RawInput, input)
@@ -21,6 +22,13 @@ func (s *Service) StartStoryboard(ctx context.Context, in domain.StoryboardGener
 	}
 	go s.executeStoryboard(context.Background(), run.ID, in)
 	return run, nil
+}
+
+func storyboardShouldPoll(in domain.StoryboardGenerateInput) bool {
+	if in.PollProgress == nil {
+		return true
+	}
+	return *in.PollProgress
 }
 
 func (s *Service) executeStoryboard(ctx context.Context, runID string, in domain.StoryboardGenerateInput) {
@@ -34,9 +42,35 @@ func (s *Service) executeStoryboard(ctx context.Context, runID string, in domain
 	}
 	content := domain.ContentRef{StoryboardID: sb.ID, StoryID: sb.StoryID}
 
-	if err := s.generateStoryboardContent(ctx, sb.ID, in); err != nil {
-		_ = s.finishRun(ctx, runID, domain.RunStatusFailed, nil, content, 0, err.Error())
-		return
+	// create_storyboard with rawInput already triggers redesign pipeline in grapery (async).
+	if in.RegenerateStructure {
+		_, err = tracedClientCall(ctx, s.store, "regenerate_structure", map[string]any{"storyboardId": sb.ID}, func(c context.Context) (map[string]any, error) {
+			resp, err := s.client.GenerateStructure(c, sb.ID)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"asyncAccepted": resp.AsyncAccepted}, nil
+		})
+		if err != nil {
+			_ = s.finishRun(ctx, runID, domain.RunStatusFailed, nil, content, 0, err.Error())
+			return
+		}
+	}
+
+	output := map[string]any{"storyboardId": sb.ID, "storyId": sb.StoryID}
+
+	if storyboardShouldPoll(in) {
+		timeout := time.Duration(defaultInt(in.PollTimeoutSec, 300)) * time.Second
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			prog, err := s.client.GetGenerationProgress(ctx, sb.ID)
+			if err == nil && !prog.IsGenerating && !prog.HasPendingTasks {
+				output["workflowStatus"] = prog.WorkflowStatus
+				output["generationMessage"] = prog.GenerationMessage
+				break
+			}
+			time.Sleep(3 * time.Second)
+		}
 	}
 
 	if in.GenerateImages {
@@ -57,23 +91,8 @@ func (s *Service) executeStoryboard(ctx context.Context, runID string, in domain
 			})
 		}
 		if err != nil {
-			_ = s.finishRun(ctx, runID, domain.RunStatusFailed, nil, content, 0, err.Error())
+			_ = s.finishRun(ctx, runID, domain.RunStatusFailed, output, content, 0, err.Error())
 			return
-		}
-	}
-
-	output := map[string]any{"storyboardId": sb.ID, "storyId": sb.StoryID}
-	if in.PollProgress {
-		timeout := time.Duration(defaultInt(in.PollTimeoutSec, 300)) * time.Second
-		deadline := time.Now().Add(timeout)
-		for time.Now().Before(deadline) {
-			prog, err := s.client.GetGenerationProgress(ctx, sb.ID)
-			if err == nil && !prog.IsGenerating && !prog.HasPendingTasks {
-				output["workflowStatus"] = prog.WorkflowStatus
-				output["generationMessage"] = prog.GenerationMessage
-				break
-			}
-			time.Sleep(3 * time.Second)
 		}
 	}
 
@@ -85,11 +104,22 @@ func (s *Service) executeStoryboard(ctx context.Context, runID string, in domain
 
 func (s *Service) createStoryboard(ctx context.Context, in domain.StoryboardGenerateInput) (*grapery_client.StoryboardResponse, error) {
 	out, err := tracedClientCall(ctx, s.store, "create_storyboard", map[string]any{"storyId": in.StoryID}, func(c context.Context) (map[string]any, error) {
+		var charRefs []grapery_client.CharacterRef
+		for i, id := range in.CharacterIDs {
+			if strings.TrimSpace(id) == "" {
+				continue
+			}
+			charRefs = append(charRefs, grapery_client.CharacterRef{
+				CharacterID: id,
+				Order:       i + 1,
+			})
+		}
 		resp, err := s.client.CreateStoryboard(c, grapery_client.CreateStoryboardRequest{
 			StoryID:              in.StoryID,
 			Title:                in.Title,
 			RawInput:             in.RawInput,
 			SceneCount:           defaultInt(in.SceneCount, 3),
+			CharacterRefs:        charRefs,
 			UseComicPagePipeline: in.UseComicPagePipeline,
 		})
 		if err != nil {
@@ -101,19 +131,4 @@ func (s *Service) createStoryboard(ctx context.Context, in domain.StoryboardGene
 		return nil, err
 	}
 	return &grapery_client.StoryboardResponse{ID: str(out["id"]), StoryID: str(out["storyId"])}, nil
-}
-
-func (s *Service) generateStoryboardContent(ctx context.Context, storyboardID string, in domain.StoryboardGenerateInput) error {
-	_, err := tracedClientCall(ctx, s.store, "generate_storyboard_content", map[string]any{"storyboardId": storyboardID}, func(c context.Context) (map[string]any, error) {
-		err := s.client.GenerateStoryboardContent(c, storyboardID, grapery_client.GenerateStoryboardContentRequest{
-			RawInput:     in.RawInput,
-			CharacterIDs: in.CharacterIDs,
-			Style:        in.Style,
-		})
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"success": true}, nil
-	})
-	return err
 }

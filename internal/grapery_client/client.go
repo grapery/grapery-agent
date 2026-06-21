@@ -19,6 +19,12 @@ func ContextWithAuthToken(ctx context.Context, token string) context.Context {
 	return context.WithValue(ctx, contextKey{}, token)
 }
 
+// AuthTokenFromContext returns the request-scoped user token, if one was forwarded.
+func AuthTokenFromContext(ctx context.Context) (string, bool) {
+	t, ok := ctx.Value(contextKey{}).(string)
+	return t, ok && t != ""
+}
+
 // Client 是 grapery 后端的 HTTP 客户端
 type Client struct {
 	baseURL    string

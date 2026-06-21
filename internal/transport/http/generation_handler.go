@@ -1,16 +1,18 @@
 package http
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
+	"github.com/gin-gonic/gin"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/artifact"
+	"github.com/grapestree/fgrapery/grapery-agent/internal/config"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/domain"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/eval"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/generation"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/grapery_client"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/runstore"
-	"github.com/gin-gonic/gin"
 )
 
 // GenerationHandler serves non-chat generation and RL artifact APIs.
@@ -21,7 +23,7 @@ type GenerationHandler struct {
 	eval     *eval.Harness
 }
 
-func NewGenerationHandler(gen *generation.Service, store runstore.Store, artifactDir string) *GenerationHandler {
+func NewGenerationHandler(gen *generation.Service, store runstore.Store, artifactDir string, _ config.AgentAuthConfig) *GenerationHandler {
 	return &GenerationHandler{
 		gen:      gen,
 		store:    store,
@@ -30,11 +32,16 @@ func NewGenerationHandler(gen *generation.Service, store runstore.Store, artifac
 	}
 }
 
-func (h *GenerationHandler) RegisterRoutes(r *gin.Engine) {
+func (h *GenerationHandler) RegisterRoutes(r *gin.Engine, auth agentAuthDeps, client *grapery_client.Client) {
 	g := r.Group("/api/v1/generation")
-	g.Use(h.authMiddleware())
+	g.Use(auth.agentAccessTokenMiddleware())
+	g.Use(forwardUserJWTMiddleware(client))
+	g.Use(runIDHeaderMiddleware())
 	{
 		g.POST("/fragments", h.startFragment)
+		g.POST("/fragments/stream", requireAgentClaims(auth), h.streamFragment)
+		g.POST("/fragment-panels", requireAgentClaims(auth), h.startFragmentPanel)
+		g.POST("/fragment-panels/stream", requireAgentClaims(auth), h.streamFragmentPanel)
 		g.POST("/stories", h.startStory)
 		g.POST("/storyboards", h.startStoryboard)
 		g.POST("/characters", h.startCharacter)
@@ -50,15 +57,20 @@ func (h *GenerationHandler) RegisterRoutes(r *gin.Engine) {
 		g.POST("/eval/run", h.runEval)
 		g.GET("/eval/seeds", h.listSeeds)
 	}
+
+	ag := r.Group("/api/v1/agent")
+	ag.Use(auth.agentAccessTokenMiddleware())
+	ag.Use(forwardUserJWTMiddleware(client))
+	ag.Use(runIDHeaderMiddleware())
+	{
+		ag.GET("/runs/:id", h.getRun)
+		ag.POST("/runs/:id/cancel", h.cancelRun)
+	}
 }
 
-func (h *GenerationHandler) authMiddleware() gin.HandlerFunc {
+func runIDHeaderMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		token := c.GetHeader("Authorization")
 		ctx := c.Request.Context()
-		if token != "" && len(token) > 7 && token[:7] == "Bearer " {
-			ctx = grapery_client.ContextWithAuthToken(ctx, token[7:])
-		}
 		if runID := c.GetHeader("X-Generation-Run-Id"); runID != "" {
 			ctx = runstore.ContextWithRunID(ctx, runID)
 		}
@@ -82,6 +94,23 @@ func (h *GenerationHandler) startFragment(c *gin.Context) {
 		return
 	}
 	run, err := h.gen.StartFragment(c.Request.Context(), in)
+	if err != nil {
+		h.fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.ok(c, run)
+}
+
+func (h *GenerationHandler) startFragmentPanel(c *gin.Context) {
+	if err := h.requireFragmentPanelExec(c); err != nil {
+		return
+	}
+	var in domain.FragmentPanelGenerateInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		h.fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	run, err := h.gen.StartFragmentPanel(c.Request.Context(), in)
 	if err != nil {
 		h.fail(c, http.StatusInternalServerError, err.Error())
 		return
@@ -223,3 +252,16 @@ func (h *GenerationHandler) runEval(c *gin.Context) {
 func (h *GenerationHandler) listSeeds(c *gin.Context) {
 	h.ok(c, eval.DefaultSeeds())
 }
+
+func (h *GenerationHandler) requireFragmentPanelExec(c *gin.Context) error {
+	if !c.GetBool(agentBearerUsedKey) {
+		return nil
+	}
+	if h.gen.ExecFragmentPanelEnabled() {
+		return nil
+	}
+	h.fail(c, http.StatusForbidden, "AGENT_EXEC_FRAGMENT_PANEL_ENABLED must be true for agent-token-only fragment-panel generation")
+	return errFragmentPanelExecDisabled
+}
+
+var errFragmentPanelExecDisabled = errors.New("fragment panel exec disabled")

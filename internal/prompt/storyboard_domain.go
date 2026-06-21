@@ -21,7 +21,7 @@ const StoryboardDomainKnowledge = `━━━━━━━━━━━━━━━
 Phase 1 — Bible & Beats 规划：
 - storyboardBible（视觉圣经）：styleBible（artStyle/lineQuality/palette/lightingMood/cameraGrammar）、characters（含 turnaroundAssetKeys）、locations、props、continuityRules
 - beats（叙事节拍）：每个 beat 包含 purpose、summary、comicFunction、layoutHint、characters、locationKey、referenceKeys、continuityNote
-- comicFunction 枚举值：establish | dialogue | action_impact | reaction | transition | atmosphere
+- comicFunction 枚举值：establish | dialogue | inner_monologue | action_impact | reaction | turning_point | shock | anticipation | celebration | transition | atmosphere
 - layoutHint 示例：wide_establishing + negative_space_tension、comic_two_panel_grid、diagonal_motion、detail_insert
 
 Phase 2 — Scene Writing：
@@ -108,23 +108,16 @@ imagePrompt 写法（与碎片碎片一致）
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 【标准工作流程】
-1. 用 create_storyboard 创建故事板：
-   - 需要关联 story_id（所属故事）
-   - scene_count 范围 2-8（后端默认 3），建议 3-6 个
-   - 如果故事已有角色，在 character_refs 中传入角色 ID 和角色定位
-   - 如果故事有预定义场景，在 scene_refs 中传入关联
-   - raw_input 要完整，这是后端生成内容的唯一文字依据
-2. 用 generate_storyboard_content 生成故事内容和分镜：
-   - 如果有已创建的角色，传入 character_ids
-   - style 参数决定整体视觉风格，要和故事类型匹配
-3. 用 generate_all_scene_images 批量生成场景图片（推荐，比逐个生成更高效）
+1. 用 create_storyboard 创建故事板（必须带完整 raw_input）：
+   - story_id、scene_count（2-8，建议 3-6）、character_refs / scene_refs 按需
+   - **create 后 grapery 后台自动执行 redesign（Bible→Beats→Scenes）**，无需再调 generate_storyboard_content
+2. 用 get_generation_progress 轮询直至文本结构生成完成
+3. 用 generate_all_scene_images 或 generate_all_comic_pages 批量出图
 4. 如果用户需要视频，用 generate_scene_video 逐场景生成
 5. 如果用户想探索不同故事走向，用 continue_storyboard 创建续写分支
-6. 如果用户对当前场景规划不满意，想完全重新来过，用 regenerate_structure 重新生成结构
-   - 已有场景时同步返回；无场景时异步执行
-   - 重新生成会覆盖 bible + scene plan，但不会删除已有图片
-   - 异步时用 get_generation_progress 查询进度
-7. 场景出图时选择管线：
+6. generate_storyboard_content 仅用于「已有 storyboard、需单独重跑 content 步骤」的次要场景
+7. 不满意结构时用 regenerate_structure 重跑 Bible/Scenes，再用 get_generation_progress 轮询
+8. 场景出图时选择管线：
    - 单图管线（generate_scene_image / generate_all_scene_images）：每场景一张独立图片
    - 漫画页管线（generate_comic_page / generate_all_comic_pages）：多格拼贴，含对白气泡/拟声词
    - 漫画页管线由后端自动根据场景描述复杂度决定格数（1-7）和布局，默认比例 9:16，对白模式 auto
