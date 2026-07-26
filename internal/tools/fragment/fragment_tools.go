@@ -20,7 +20,9 @@ func NewExtractElementsTool(client *grapery_client.Client) (tool.InvokableTool, 
 			resp, err := client.GenerateFragment(ctx, grapery_client.GenerateFragmentRequest{
 				UserInput:              input.UserInput,
 				ImageUrls:              input.ReferenceImages,
+				ReferenceSlots:         fragmentReferenceSlotsToClient(input.ReferenceSlots),
 				ImageCount:             input.ImageCount,
+				ClientMessageID:        input.ClientMessageID,
 				Style:                  input.Style,
 				Mood:                   input.Mood,
 				Length:                 input.Length,
@@ -28,6 +30,8 @@ func NewExtractElementsTool(client *grapery_client.Client) (tool.InvokableTool, 
 				Visibility:             input.Visibility,
 				AspectRatio:            input.AspectRatio,
 				ConsistencyLevel:       input.ConsistencyLevel,
+				TargetDraftFragmentID:  input.TargetDraftFragmentID,
+				ReplaceImageIndex:      input.ReplaceImageIndex,
 				EnableReferenceAssets:  input.EnableReferenceAssets,
 				IncludeGenerationTrace: input.IncludeGenerationTrace,
 			})
@@ -55,11 +59,20 @@ func NewPollTaskStatusTool(client *grapery_client.Client) (tool.InvokableTool, e
 				return nil, fmt.Errorf("poll status failed: %w", err)
 			}
 			out := &PollStatusOutput{
-				TaskID:      status.TaskID,
-				Status:      status.Status,
-				Progress:    status.Progress,
-				CurrentStep: status.CurrentStep,
-				Error:       status.Error,
+				TaskID:          status.TaskID,
+				Status:          status.Status,
+				Progress:        status.Progress,
+				CurrentStep:     status.CurrentStep,
+				MessageKey:      status.MessageKey,
+				Stage:           status.Stage,
+				StoryText:       status.StoryText,
+				ImageSlots:      status.ImageSlots,
+				SlotMode:        status.SlotMode,
+				ImageProgress:   status.ImageProgress,
+				GeneratedImages: status.GeneratedImages,
+				ChatMessages:    status.ChatMessages,
+				Cost:            status.Cost,
+				Error:           status.Error,
 			}
 			if status.Result != nil {
 				out.Content = status.Result.Content
@@ -153,18 +166,32 @@ func NewPollAITaskTool(client *grapery_client.Client) (tool.InvokableTool, error
 // ============ Tool 输入输出类型 ============
 
 type ExtractElementsInput struct {
-	UserInput         string   `json:"user_input" jsonschema:"description=用户的故事创意描述,required"`
-	ReferenceImages   []string `json:"reference_images,omitempty" jsonschema:"description=参考图片 URL 列表"`
-	ImageCount        int      `json:"image_count,omitempty" jsonschema:"description=生成图片数量,1-10"`
-	Style             string   `json:"style,omitempty" jsonschema:"description=故事风格,fantasy/sci-fi/romance/thriller等"`
-	Mood              string   `json:"mood,omitempty" jsonschema:"description=故事氛围,happy/sad/mysterious/romantic"`
-	Length            string   `json:"length,omitempty" jsonschema:"description=故事长度,short/medium/long"`
-	Language          string   `json:"language,omitempty" jsonschema:"description=语言,zh-Hans/en/ja"`
-	Visibility        string   `json:"visibility,omitempty" jsonschema:"description=可见性,public/followers/private"`
-	AspectRatio            string `json:"aspect_ratio,omitempty" jsonschema:"description=图片比例,1:1/16:9/9:16/3:4/4:3"`
-	ConsistencyLevel       string `json:"consistency_level,omitempty" jsonschema:"description=一致性级别,off/standard/strong"`
-	EnableReferenceAssets  *bool  `json:"enable_reference_assets,omitempty"`
-	IncludeGenerationTrace bool   `json:"include_generation_trace,omitempty"`
+	UserInput              string                       `json:"user_input" jsonschema:"description=用户的故事创意描述,required"`
+	ReferenceImages        []string                     `json:"reference_images,omitempty" jsonschema:"description=参考图片 URL 列表"`
+	ReferenceSlots         []FragmentReferenceSlotInput `json:"reference_slots,omitempty" jsonschema:"description=参考图槽位，带 key/label/kind/image_url"`
+	ImageCount             int                          `json:"image_count,omitempty" jsonschema:"description=生成图片数量,1-10"`
+	ClientMessageID        string                       `json:"client_message_id,omitempty" jsonschema:"description=客户端消息幂等键；同一条用户消息重试时复用"`
+	Style                  string                       `json:"style,omitempty" jsonschema:"description=故事风格,fantasy/sci-fi/romance/thriller等"`
+	Mood                   string                       `json:"mood,omitempty" jsonschema:"description=故事氛围,happy/sad/mysterious/romantic"`
+	Length                 string                       `json:"length,omitempty" jsonschema:"description=故事长度,short/medium/long"`
+	Language               string                       `json:"language,omitempty" jsonschema:"description=语言,zh-Hans/en/ja"`
+	Visibility             string                       `json:"visibility,omitempty" jsonschema:"description=可见性,public/followers/private"`
+	AspectRatio            string                       `json:"aspect_ratio,omitempty" jsonschema:"description=图片比例,1:1/16:9/9:16/3:4/4:3"`
+	ConsistencyLevel       string                       `json:"consistency_level,omitempty" jsonschema:"description=一致性级别,off/standard/strong"`
+	TargetDraftFragmentID  string                       `json:"target_draft_fragment_id,omitempty" jsonschema:"description=未发布草稿 ID；传入后将基于现有作品追加或替换图片"`
+	ReplaceImageIndex      int                          `json:"replace_image_index,omitempty" jsonschema:"description=需要替换的图片序号，1-based；为空时表示追加"`
+	EnableReferenceAssets  *bool                        `json:"enable_reference_assets,omitempty"`
+	IncludeGenerationTrace bool                         `json:"include_generation_trace,omitempty"`
+}
+
+type FragmentReferenceSlotInput struct {
+	Key        string `json:"key"`
+	Label      string `json:"label,omitempty"`
+	Kind       string `json:"kind,omitempty"`
+	Required   bool   `json:"required,omitempty"`
+	InputType  string `json:"input_type,omitempty"`
+	ImageURL   string `json:"image_url,omitempty"`
+	HelperText string `json:"helper_text,omitempty"`
 }
 
 type ExtractElementsOutput struct {
@@ -178,15 +205,24 @@ type PollStatusInput struct {
 }
 
 type PollStatusOutput struct {
-	TaskID      string   `json:"task_id"`
-	Status      string   `json:"status"`
-	Progress    float64  `json:"progress"`
-	CurrentStep string   `json:"current_step"`
-	Error       string   `json:"error,omitempty"`
-	Content     string   `json:"content,omitempty"`
-	ImageUrls   []string `json:"image_urls,omitempty"`
-	TokensUsed  int      `json:"tokens_used,omitempty"`
-	AspectRatio string   `json:"aspect_ratio,omitempty"`
+	TaskID          string                                          `json:"task_id"`
+	Status          string                                          `json:"status"`
+	Progress        float64                                         `json:"progress"`
+	CurrentStep     string                                          `json:"current_step"`
+	MessageKey      string                                          `json:"message_key,omitempty"`
+	Stage           string                                          `json:"stage,omitempty"`
+	StoryText       string                                          `json:"story_text,omitempty"`
+	ImageSlots      []grapery_client.FragmentGenerationImageSlot    `json:"image_slots,omitempty"`
+	SlotMode        string                                          `json:"slot_mode,omitempty"`
+	ImageProgress   *grapery_client.FragmentGenerationImageProgress `json:"image_progress,omitempty"`
+	GeneratedImages []string                                        `json:"generated_images,omitempty"`
+	ChatMessages    []grapery_client.FragmentGenerationChatMessage  `json:"chat_messages,omitempty"`
+	Cost            *grapery_client.FragmentGenerationCost          `json:"cost,omitempty"`
+	Error           string                                          `json:"error,omitempty"`
+	Content         string                                          `json:"content,omitempty"`
+	ImageUrls       []string                                        `json:"image_urls,omitempty"`
+	TokensUsed      int                                             `json:"tokens_used,omitempty"`
+	AspectRatio     string                                          `json:"aspect_ratio,omitempty"`
 }
 
 type CancelTaskInput struct {
@@ -225,6 +261,25 @@ type GenerateImageOutput struct {
 	Message string `json:"message,omitempty"`
 }
 
+func fragmentReferenceSlotsToClient(slots []FragmentReferenceSlotInput) []grapery_client.FragmentReferenceSlot {
+	if len(slots) == 0 {
+		return nil
+	}
+	out := make([]grapery_client.FragmentReferenceSlot, 0, len(slots))
+	for _, slot := range slots {
+		out = append(out, grapery_client.FragmentReferenceSlot{
+			Key:        slot.Key,
+			Label:      slot.Label,
+			Kind:       slot.Kind,
+			Required:   slot.Required,
+			InputType:  slot.InputType,
+			ImageURL:   slot.ImageURL,
+			HelperText: slot.HelperText,
+		})
+	}
+	return out
+}
+
 type PollAITaskInput struct {
 	TaskID string `json:"task_id" jsonschema:"description=AI 任务 ID,required"`
 }
@@ -258,12 +313,12 @@ type PrefillStoryInput struct {
 }
 
 type PrefillStoryOutput struct {
-	Title               string                     `json:"title"`
-	Description         string                     `json:"description"`
-	Summary             string                     `json:"summary,omitempty"`
-	Style               string                     `json:"style"`
-	Genre               string                     `json:"genre,omitempty"`
-	Tags                []string                   `json:"tags,omitempty"`
+	Title               string                      `json:"title"`
+	Description         string                      `json:"description"`
+	Summary             string                      `json:"summary,omitempty"`
+	Style               string                      `json:"style"`
+	Genre               string                      `json:"genre,omitempty"`
+	Tags                []string                    `json:"tags,omitempty"`
 	SuggestedCharacters []PrefillSuggestedCharacter `json:"suggested_characters,omitempty"`
 }
 

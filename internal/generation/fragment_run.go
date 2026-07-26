@@ -13,11 +13,14 @@ import (
 
 func (s *Service) StartFragment(ctx context.Context, in domain.FragmentGenerateInput) (*domain.GenerationRun, error) {
 	input := map[string]any{
-		"userInput":        in.UserInput,
-		"imageCount":       in.ImageCount,
-		"style":            in.Style,
-		"mood":             in.Mood,
-		"consistencyLevel": in.ConsistencyLevel,
+		"userInput":             in.UserInput,
+		"imageCount":            in.ImageCount,
+		"style":                 in.Style,
+		"mood":                  in.Mood,
+		"consistencyLevel":      in.ConsistencyLevel,
+		"targetDraftFragmentId": in.TargetDraftFragmentID,
+		"replaceImageIndex":     in.ReplaceImageIndex,
+		"clientMessageId":       in.ClientMessageID,
 	}
 	run, err := s.store.CreateRun(ctx, domain.RunKindFragment, domain.AgentFragmentCreator, in.UserInput, input)
 	if err != nil {
@@ -56,6 +59,9 @@ func (s *Service) executeFragment(ctx context.Context, runID string, in domain.F
 		Visibility:             defaultString(in.Visibility, "private"),
 		AspectRatio:            in.AspectRatio,
 		ConsistencyLevel:       in.ConsistencyLevel,
+		TargetDraftFragmentID:  in.TargetDraftFragmentID,
+		ReplaceImageIndex:      in.ReplaceImageIndex,
+		ClientMessageID:        in.ClientMessageID,
 		EnableReferenceAssets:  in.EnableReferenceAssets,
 		IncludeGenerationTrace: in.IncludeGenerationTrace,
 	}
@@ -98,16 +104,32 @@ func (s *Service) executeFragment(ctx context.Context, runID string, in domain.F
 
 done:
 	output := map[string]any{
-		"taskId": startResp.TaskID,
-		"status": final.Status,
+		"taskId":          startResp.TaskID,
+		"status":          final.Status,
+		"draftFragmentId": content.FragmentID,
+		"fragmentId":      content.FragmentID,
 	}
+	copyFragmentStatusOutput(output, final)
 	tokens := 0
 	if final.Result != nil {
 		output["content"] = final.Result.Content
 		output["imageUrls"] = final.Result.ImageUrls
 		output["aspectRatio"] = final.Result.AspectRatio
 		output["storyElements"] = final.Result.StoryElements
+		output["expectedImageCount"] = final.Result.ExpectedImageCount
+		if len(final.Result.ImageSlots) > 0 {
+			output["imageSlots"] = final.Result.ImageSlots
+		}
+		if final.Result.ImageProgress != nil {
+			output["imageProgress"] = final.Result.ImageProgress
+		}
 		tokens = final.Result.TokensUsed
+	}
+	if final.StoryText != "" {
+		output["content"] = final.StoryText
+	}
+	if len(final.GeneratedImages) > 0 {
+		output["imageUrls"] = final.GeneratedImages
 	}
 	_ = s.finishRun(ctx, runID, domain.RunStatusSucceeded, output, content, tokens, "")
 	if run, ok := s.store.GetRun(ctx, runID); ok {
@@ -128,10 +150,41 @@ func (s *Service) updateFragmentRunProgress(ctx context.Context, runID string, s
 		r.Output["progress"] = status.Progress
 		r.Output["currentStep"] = status.CurrentStep
 		r.Output["messageKey"] = status.MessageKey
+		copyFragmentStatusOutput(r.Output, status)
 		if status.Result != nil {
 			r.Output["partialResult"] = status.Result
 		}
 	})
+}
+
+func copyFragmentStatusOutput(output map[string]any, status *grapery_client.FragmentTaskStatus) {
+	if status == nil {
+		return
+	}
+	if status.Stage != "" {
+		output["stage"] = status.Stage
+	}
+	if status.StoryText != "" {
+		output["storyText"] = status.StoryText
+	}
+	if len(status.ImageSlots) > 0 {
+		output["imageSlots"] = status.ImageSlots
+	}
+	if status.SlotMode != "" {
+		output["slotMode"] = status.SlotMode
+	}
+	if status.ImageProgress != nil {
+		output["imageProgress"] = status.ImageProgress
+	}
+	if len(status.GeneratedImages) > 0 {
+		output["generatedImages"] = status.GeneratedImages
+	}
+	if len(status.ChatMessages) > 0 {
+		output["chatMessages"] = status.ChatMessages
+	}
+	if status.Cost != nil {
+		output["cost"] = status.Cost
+	}
 }
 
 func fragmentReferenceSlotsToClient(slots []domain.FragmentReferenceSlot) []grapery_client.FragmentReferenceSlot {
@@ -185,6 +238,7 @@ func (s *Service) pollFragment(ctx context.Context, taskID string) (*grapery_cli
 			"taskId": st.TaskID, "status": st.Status, "progress": st.Progress,
 			"currentStep": st.CurrentStep, "messageKey": st.MessageKey, "error": st.Error,
 		}
+		copyFragmentStatusOutput(m, st)
 		if st.Result != nil {
 			m["result"] = st.Result
 		}
@@ -196,6 +250,24 @@ func (s *Service) pollFragment(ctx context.Context, taskID string) (*grapery_cli
 	st := &grapery_client.FragmentTaskStatus{
 		TaskID: str(out["taskId"]), Status: str(out["status"]),
 		Progress: num(out["progress"]), CurrentStep: str(out["currentStep"]), MessageKey: str(out["messageKey"]), Error: str(out["error"]),
+	}
+	st.Stage = str(out["stage"])
+	st.StoryText = str(out["storyText"])
+	st.SlotMode = str(out["slotMode"])
+	if imageSlots, ok := out["imageSlots"].([]grapery_client.FragmentGenerationImageSlot); ok {
+		st.ImageSlots = imageSlots
+	}
+	if imageProgress, ok := out["imageProgress"].(*grapery_client.FragmentGenerationImageProgress); ok {
+		st.ImageProgress = imageProgress
+	}
+	if generatedImages, ok := out["generatedImages"].([]string); ok {
+		st.GeneratedImages = generatedImages
+	}
+	if chatMessages, ok := out["chatMessages"].([]grapery_client.FragmentGenerationChatMessage); ok {
+		st.ChatMessages = chatMessages
+	}
+	if cost, ok := out["cost"].(*grapery_client.FragmentGenerationCost); ok {
+		st.Cost = cost
 	}
 	if r, ok := out["result"].(*grapery_client.FragmentTaskResult); ok {
 		st.Result = r

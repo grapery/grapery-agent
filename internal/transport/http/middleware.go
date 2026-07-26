@@ -109,6 +109,8 @@ func extractAgentAccessToken(c *gin.Context) (token string, fromBearer bool) {
 func expectedScopeForPath(method, path string) (agent, operation string, enforce bool) {
 	path = strings.TrimSuffix(path, "/")
 	switch {
+	case method == http.MethodPost && strings.HasPrefix(path, "/api/v1/agent/creation/"):
+		return "fragment", "generate", true
 	case strings.HasSuffix(path, "/chat") || strings.Contains(path, "/chat/"):
 		parts := strings.Split(strings.TrimPrefix(path, "/api/v1/agent/"), "/")
 		if len(parts) > 0 && parts[0] != "" {

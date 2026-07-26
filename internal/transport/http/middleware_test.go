@@ -27,6 +27,10 @@ func TestExpectedScopeForPath(t *testing.T) {
 	if !ok || agent != "fragment" || op != "chat" {
 		t.Fatalf("sync resume scope got %q %q %v", agent, op, ok)
 	}
+	agent, op, ok = expectedScopeForPath("POST", "/api/v1/agent/creation/sessions/cs_1/messages/stream")
+	if !ok || agent != "fragment" || op != "generate" {
+		t.Fatalf("creation scope got %q %q %v", agent, op, ok)
+	}
 }
 
 func TestScopeMatches(t *testing.T) {

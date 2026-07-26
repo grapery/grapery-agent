@@ -21,6 +21,9 @@ type FragmentGenerateInput struct {
 	Visibility             string                  `json:"visibility,omitempty"`
 	AspectRatio            string                  `json:"aspectRatio,omitempty"`
 	ConsistencyLevel       string                  `json:"consistencyLevel,omitempty"`
+	TargetDraftFragmentID  string                  `json:"targetDraftFragmentId,omitempty"`
+	ReplaceImageIndex      int                     `json:"replaceImageIndex,omitempty"`
+	ClientMessageID        string                  `json:"clientMessageId,omitempty"`
 	EnableReferenceAssets  *bool                   `json:"enableReferenceAssets,omitempty"`
 	IncludeGenerationTrace bool                    `json:"includeGenerationTrace,omitempty"`
 	PollIntervalSec        int                     `json:"pollIntervalSec,omitempty"`

@@ -23,14 +23,27 @@ internal/
 
 ## 配置
 
-- 开发：`cp env.grapery-agent.dev.example .env`
+- 开发（仅当 `.env` 不存在时复制，避免覆盖已有配置）：
+  ```bash
+  [ ! -f .env ] && cp env.grapery-agent.dev.example .env
+  ```
+- 可选：`make sync-env-from-grapery` — 若无 `.env` 则创建；已有文件只填空字段，不覆盖已有值
 - 生产字段参考：`env.grapery-agent.prod.example`（CI 自动生成远端 `.env`）
+
+关键变量见 `env.grapery-agent.dev.example`：`HUOSHAN_API_KEY`、`AGENT_TOKEN_VERIFY_KEY`（= grapery `AGENT_TOKEN_SIGNING_KEY`）、`GRAPERY_API_KEY`（= `GRAPERY_INTERNAL_API_KEY`）、`GRAPERY_BASE_URL`。
 
 ## 运行
 
 ```bash
-go run cmd/server/main.go
+[ ! -f .env ] && cp env.grapery-agent.dev.example .env   # 仅首次
+# 或：make sync-env-from-grapery
+make run                                # 或 make run-agent（loads .env if present）
+
+# 等价
+go run ./cmd/server
 ```
+
+也可从 `grapery/`：`make run-agent` / `make sync-agent-env`。
 
 ## 部署
 

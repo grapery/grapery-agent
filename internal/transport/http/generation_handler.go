@@ -18,6 +18,7 @@ import (
 // GenerationHandler serves non-chat generation and RL artifact APIs.
 type GenerationHandler struct {
 	gen      *generation.Service
+	client   *grapery_client.Client
 	store    runstore.Store
 	exporter *artifact.Exporter
 	eval     *eval.Harness
@@ -33,6 +34,7 @@ func NewGenerationHandler(gen *generation.Service, store runstore.Store, artifac
 }
 
 func (h *GenerationHandler) RegisterRoutes(r *gin.Engine, auth agentAuthDeps, client *grapery_client.Client) {
+	h.client = client
 	g := r.Group("/api/v1/generation")
 	g.Use(auth.agentAccessTokenMiddleware())
 	g.Use(forwardUserJWTMiddleware(client))
@@ -65,6 +67,8 @@ func (h *GenerationHandler) RegisterRoutes(r *gin.Engine, auth agentAuthDeps, cl
 	{
 		ag.GET("/runs/:id", h.getRun)
 		ag.POST("/runs/:id/cancel", h.cancelRun)
+		ag.POST("/creation/sessions", h.createCreationSession)
+		ag.POST("/creation/sessions/:id/messages/stream", h.streamCreationMessage)
 	}
 }
 

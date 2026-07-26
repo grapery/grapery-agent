@@ -41,8 +41,17 @@
 | AI / Agent | `HUOSHAN_*`, `GEMINI_*`, `AI_DEFAULT_PROVIDER`, `EINO_*`, `GRAPERY_AGENT_API_KEY`（可与 `JWT_SECRET` 同源） |
 | 阿里云 | `ALIYUN_*`, `ALIYUN_OSS_*`, `ALIYUN_SMS_*` |
 | 鉴权 | `JWT_SECRET`, `JWT_EXPIRY_HOURS` |
+| Agent Access Token | `AGENT_TOKEN_VERIFY_KEY` 或与 grapery 同名的 `AGENT_TOKEN_SIGNING_KEY`（二选一即可；必须与 server 签发密钥一致） |
+| Agent 开关 | `AGENT_ACCESS_TOKEN_REQUIRED`、`AGENT_TOKEN_REPLAY_CACHE_ENABLED`、`AGENT_EXEC_FRAGMENT_PANEL_ENABLED`、`AUDIT_SYNC_TO_GRAPERY_ENABLED` |
 
-`agent-ci.yml` 部署生成的 `.env` 会写入 DB、Redis、JWT、阿里云 OSS/SMS 等，与 server 侧配置一致，便于后续能力扩展或与 grapery 共用基础设施。
+`agent-ci.yml` 部署生成的 `.env` 会写入 DB、Redis、JWT、Agent Access Token、阿里云 OSS/SMS 等，与 server 侧配置一致。
+
+**部署注意**：
+
+1. 推 `develop` 会触发 **dev** 镜像构建并部署到 `DEV_DEPLOY_HOST`；`main` 生产部署默认关闭（需 `ENABLE_AGENT_PROD_DEPLOY=true`）。
+2. Agent Token：在 grapery-agent Variables 配置 `AGENT_TOKEN_VERIFY_KEY`（或复制 grapery 的 `AGENT_TOKEN_SIGNING_KEY`），否则运行时回落到代码默认值，与生产 server 密钥可能不一致。
+3. `GRAPERY_BASE_URL` 在 ECS 上为 `http://server:8080`，依赖 `grapery-network` 上已有 `server` 容器。
+4. 路由变更后需在 **ngx** 仓库手动跑 `ngx-ci.yml`（`workflow_dispatch`）。
 
 ### SSH_KEY（Variables）
 
@@ -103,6 +112,7 @@ Docker 相关文件：
 | DB / Redis | ✅ | ✅ |
 | AI | `HUOSHAN_*`, `GEMINI_*`, `AI_DEFAULT_PROVIDER` | + `EINO_*`, `HUOSHAN_IMAGE/VIDEO_MODEL` |
 | JWT | ✅ | ✅ |
+| Agent Access Token | `AGENT_TOKEN_SIGNING_KEY`（server 签发） | `AGENT_TOKEN_VERIFY_KEY` ← `VERIFY` 或 `SIGNING` var |
 | 阿里云 OSS/SMS/SLS | ✅ | ✅（SMS `USE_DEFAULT_CREDENTIAL` 可来自 var） |
 | APNs / Apple IAP | ✅（server + p8 文件） | ❌（agent 不经手推送） |
 | VIPPay / 微信 / Google | vippay-ci | ❌ |
@@ -110,8 +120,9 @@ Docker 相关文件：
 ## 本地 Docker
 
 ```bash
-cp env.grapery-agent.dev.example .env
+[ ! -f .env ] && cp env.grapery-agent.dev.example .env
 # 编辑 HUOSHAN_API_KEY、DB_* 等；联调 server 时保持 GRAPERY_BASE_URL=http://server:8080
+# 已有 .env 勿用裸 cp，以免覆盖；可用 make sync-env-from-grapery 仅填空
 
 docker build -t grapery-agent:local .
 docker network create grapery-network 2>/dev/null || true

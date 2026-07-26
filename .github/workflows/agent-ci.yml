@@ -193,6 +193,13 @@ jobs:
           JWT_SECRET=${{ vars.JWT_SECRET }}
           JWT_EXPIRY_HOURS=${{ vars.JWT_EXPIRY_HOURS || '24' }}
 
+          # ========== Agent Access Token (must match grapery AGENT_TOKEN_SIGNING_KEY) ==========
+          AGENT_TOKEN_VERIFY_KEY=${{ vars.AGENT_TOKEN_VERIFY_KEY || vars.AGENT_TOKEN_SIGNING_KEY }}
+          AGENT_ACCESS_TOKEN_REQUIRED=${{ vars.AGENT_ACCESS_TOKEN_REQUIRED || 'false' }}
+          AGENT_TOKEN_REPLAY_CACHE_ENABLED=${{ vars.AGENT_TOKEN_REPLAY_CACHE_ENABLED || 'false' }}
+          AGENT_EXEC_FRAGMENT_PANEL_ENABLED=${{ vars.AGENT_EXEC_FRAGMENT_PANEL_ENABLED || 'false' }}
+          AUDIT_SYNC_TO_GRAPERY_ENABLED=${{ vars.AUDIT_SYNC_TO_GRAPERY_ENABLED || 'true' }}
+
           # ========== Aliyun OSS ==========
           ALIYUN_API_KEY=${{ vars.ALIYUN_API_KEY }}
           ALIYUN_SECRET_KEY=${{ vars.ALIYUN_SECRET_KEY }}
@@ -234,6 +241,8 @@ jobs:
           echo "- DB_PASSWORD: ${{ vars.DB_PASSWORD != '' && 'Set' || 'Missing' }}" >> $GITHUB_STEP_SUMMARY
           echo "- JWT_SECRET: ${{ vars.JWT_SECRET != '' && 'Set' || 'Missing' }}" >> $GITHUB_STEP_SUMMARY
           echo "- HUOSHAN_API_KEY: ${{ vars.HUOSHAN_API_KEY != '' && 'Set' || 'Missing' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- AGENT_TOKEN_VERIFY_KEY/SIGNING_KEY: ${{ (vars.AGENT_TOKEN_VERIFY_KEY != '' || vars.AGENT_TOKEN_SIGNING_KEY != '') && 'Set' || 'Missing (falls back to code default)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- GRAPERY_AGENT_API_KEY: ${{ vars.GRAPERY_AGENT_API_KEY != '' && 'Set' || 'Optional (falls back to JWT_SECRET)' }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "After first deploy or nginx route changes, run **ngx** \`ngx-ci.yml\` (workflow_dispatch)." >> $GITHUB_STEP_SUMMARY
           echo "- SSH_KEY: ${{ vars.SSH_KEY != '' && 'Set' || 'Missing' }}" >> $GITHUB_STEP_SUMMARY
@@ -350,6 +359,13 @@ jobs:
           JWT_SECRET=${{ vars.JWT_SECRET }}
           JWT_EXPIRY_HOURS=${{ vars.JWT_EXPIRY_HOURS || '24' }}
 
+          # ========== Agent Access Token (must match grapery AGENT_TOKEN_SIGNING_KEY) ==========
+          AGENT_TOKEN_VERIFY_KEY=${{ vars.AGENT_TOKEN_VERIFY_KEY || vars.AGENT_TOKEN_SIGNING_KEY }}
+          AGENT_ACCESS_TOKEN_REQUIRED=${{ vars.AGENT_ACCESS_TOKEN_REQUIRED || 'true' }}
+          AGENT_TOKEN_REPLAY_CACHE_ENABLED=${{ vars.AGENT_TOKEN_REPLAY_CACHE_ENABLED || 'true' }}
+          AGENT_EXEC_FRAGMENT_PANEL_ENABLED=${{ vars.AGENT_EXEC_FRAGMENT_PANEL_ENABLED || 'false' }}
+          AUDIT_SYNC_TO_GRAPERY_ENABLED=${{ vars.AUDIT_SYNC_TO_GRAPERY_ENABLED || 'true' }}
+
           # ========== Aliyun OSS ==========
           ALIYUN_API_KEY=${{ vars.ALIYUN_API_KEY }}
           ALIYUN_SECRET_KEY=${{ vars.ALIYUN_SECRET_KEY }}
@@ -390,7 +406,8 @@ jobs:
           echo "- DB_PASSWORD: ${{ vars.DB_PASSWORD != '' && 'Set' || 'Missing' }}" >> $GITHUB_STEP_SUMMARY
           echo "- JWT_SECRET: ${{ vars.JWT_SECRET != '' && 'Set' || 'Missing' }}" >> $GITHUB_STEP_SUMMARY
           echo "- HUOSHAN_API_KEY: ${{ vars.HUOSHAN_API_KEY != '' && 'Set' || 'Missing' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- GRAPERY_AGENT_API_KEY: ${{ vars.GRAPERY_AGENT_API_KEY != '' && 'Set' || 'Optional' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- AGENT_TOKEN_VERIFY_KEY/SIGNING_KEY: ${{ (vars.AGENT_TOKEN_VERIFY_KEY != '' || vars.AGENT_TOKEN_SIGNING_KEY != '') && 'Set' || 'Missing (falls back to code default)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- GRAPERY_AGENT_API_KEY: ${{ vars.GRAPERY_AGENT_API_KEY != '' && 'Set' || 'Optional (falls back to JWT_SECRET)' }}" >> $GITHUB_STEP_SUMMARY
 
       - name: Prepare SSH private key
         id: ssh_key
