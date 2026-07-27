@@ -15,7 +15,22 @@ run-agent:
 	@echo "🚀 Starting Grapery Agent on port $(AGENT_PORT)..."
 	@echo "   Tip: [ ! -f .env ] && cp env.grapery-agent.dev.example .env  (won't overwrite)"
 	@echo "   Or:  make sync-env-from-grapery  (create if missing; only fill empty keys)"
-	@set -a; [ -f .env ] && . ./.env; set +a; \
+	@set -a; \
+	cli_huoshan="$${HUOSHAN_API_KEY-}"; cli_gemini="$${GEMINI_API_KEY-}"; \
+	[ -f .env ] && . ./.env; \
+	[ -n "$$cli_huoshan" ] && export HUOSHAN_API_KEY="$$cli_huoshan"; \
+	[ -n "$$cli_gemini" ] && export GEMINI_API_KEY="$$cli_gemini"; \
+	set +a; \
+	provider="$${EINO_TEXT_PROVIDER:-huoshan}"; \
+	if [ "$$provider" = "huoshan" ] && [ -z "$${HUOSHAN_API_KEY:-}" ]; then \
+		echo "❌ HUOSHAN_API_KEY is missing in .env (required when EINO_TEXT_PROVIDER=huoshan)"; \
+		echo "   Set it in grapery-agent/.env or grapery/.env then: make sync-env-from-grapery"; \
+		exit 1; \
+	fi; \
+	if [ "$$provider" = "gemini" ] && [ -z "$${GEMINI_API_KEY:-}" ]; then \
+		echo "❌ GEMINI_API_KEY is missing in .env (required when EINO_TEXT_PROVIDER=gemini)"; \
+		exit 1; \
+	fi; \
 	if [ -z "$${AGENT_TOKEN_VERIFY_KEY:-}" ] && [ -n "$${AGENT_TOKEN_SIGNING_KEY:-}" ]; then \
 		export AGENT_TOKEN_VERIFY_KEY="$${AGENT_TOKEN_SIGNING_KEY}"; \
 	fi; \
