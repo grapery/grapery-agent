@@ -150,15 +150,20 @@ func (h *GenerationHandler) streamCreationFragment(c *gin.Context, req domain.Cr
 		writeEvent("failed", gin.H{"event": "failed", "message": err.Error(), "status": "failed"})
 		return
 	}
-	writeEvent("task_started", gin.H{
-		"event":           "task_started",
-		"runId":           run.ID,
-		"taskId":          run.ContentIDs.TaskID,
-		"draftFragmentId": run.ContentIDs.FragmentID,
-		"fragmentId":      run.ContentIDs.FragmentID,
-		"targetType":      "fragment",
-		"clientRequestId": req.ClientRequestID,
-	})
+	// StartFragment creates the agent run first and starts the Grapery task
+	// asynchronously. Do not announce task_started until task and draft IDs
+	// actually exist; subsequent progress events carry the resolved IDs.
+	if run.ContentIDs.TaskID != "" && run.ContentIDs.FragmentID != "" {
+		writeEvent("task_started", gin.H{
+			"event":           "task_started",
+			"runId":           run.ID,
+			"taskId":          run.ContentIDs.TaskID,
+			"draftFragmentId": run.ContentIDs.FragmentID,
+			"fragmentId":      run.ContentIDs.FragmentID,
+			"targetType":      "fragment",
+			"clientRequestId": req.ClientRequestID,
+		})
+	}
 	h.streamRunSSEWithPrefix(c, run.ID, "creation", writeEvent)
 }
 
