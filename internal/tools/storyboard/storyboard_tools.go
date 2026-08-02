@@ -34,14 +34,14 @@ func NewCreateStoryboardTool(client *grapery_client.Client) (tool.InvokableTool,
 			}
 
 			resp, err := client.CreateStoryboard(ctx, grapery_client.CreateStoryboardRequest{
-				StoryID:      input.StoryID,
-				Title:        input.Title,
-				RawInput:     input.RawInput,
-				SceneCount:   input.SceneCount,
-				CharacterRefs: charRefs,
-				SceneRefs:           sceneRefs,
-				Tags:                input.Tags,
-						UseComicPagePipeline: input.UseComicPagePipeline,
+				StoryID:              input.StoryID,
+				Title:                input.Title,
+				RawInput:             input.RawInput,
+				SceneCount:           input.SceneCount,
+				CharacterRefs:        charRefs,
+				SceneRefs:            sceneRefs,
+				Tags:                 input.Tags,
+				UseComicPagePipeline: input.UseComicPagePipeline,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("create storyboard: %w", err)
@@ -113,11 +113,11 @@ func NewGenerateVideoTool(client *grapery_client.Client) (tool.InvokableTool, er
 		"为故事板场景生成视频",
 		func(ctx context.Context, input *GenerateVideoInput) (*GenerateVideoOutput, error) {
 			err := client.GenerateSceneVideo(ctx, input.StoryboardID, grapery_client.StoryboardVideoRequest{
-				SceneID:          input.SceneID,
-				SceneTitle:       input.SceneTitle,
-				InputDescription: input.InputDescription,
+				SceneID:           input.SceneID,
+				SceneTitle:        input.SceneTitle,
+				InputDescription:  input.InputDescription,
 				ReferenceImageURL: input.ReferenceImageURL,
-				EndFrameURL:      input.EndFrameURL,
+				EndFrameURL:       input.EndFrameURL,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("generate video: %w", err)
@@ -143,9 +143,9 @@ func NewContinueStoryboardTool(client *grapery_client.Client) (tool.InvokableToo
 				return nil, fmt.Errorf("continue storyboard: %w", err)
 			}
 			if resp.NewStoryboard == nil {
-					return nil, fmt.Errorf("continue storyboard: no storyboard in response")
-				}
-				return &ContinueOutput{ID: resp.NewStoryboard.ID, StoryID: resp.NewStoryboard.StoryID}, nil
+				return nil, fmt.Errorf("continue storyboard: no storyboard in response")
+			}
+			return &ContinueOutput{ID: resp.NewStoryboard.ID, StoryID: resp.NewStoryboard.StoryID}, nil
 		},
 	)
 }
@@ -155,7 +155,7 @@ func NewGenerateStructureTool(client *grapery_client.Client) (tool.InvokableTool
 		"regenerate_structure",
 		"重新生成故事板的结构（视觉圣经+场景规划）。已有场景时同步返回结果；无场景时异步执行。",
 		func(ctx context.Context, input *GenerateStructureInput) (*GenerateStructureOutput, error) {
-			resp, err := client.GenerateStructure(ctx, input.StoryboardID)
+			resp, err := client.GenerateStructure(ctx, input.StoryboardID, grapery_client.GenerateStructureRequest{})
 			if err != nil {
 				return nil, fmt.Errorf("regenerate structure: %w", err)
 			}
@@ -170,7 +170,6 @@ func NewGenerateStructureTool(client *grapery_client.Client) (tool.InvokableTool
 		},
 	)
 }
-
 
 func NewGenerateComicPageTool(client *grapery_client.Client) (tool.InvokableTool, error) {
 	return utils.InferTool(
@@ -314,14 +313,14 @@ type SceneRefInput struct {
 }
 
 type CreateStoryboardInput struct {
-	StoryID              string         `json:"story_id" jsonschema:"description=所属故事 ID,required"`
-	Title                string         `json:"title,omitempty" jsonschema:"description=故事板标题"`
-	RawInput             string         `json:"raw_input" jsonschema:"description=用户原始输入,required"`
-	SceneCount           int            `json:"scene_count,omitempty" jsonschema:"description=场景数量,2-8"`
-	CharacterRefs        []CharRef      `json:"character_refs,omitempty" jsonschema:"description=关联角色"`
+	StoryID              string          `json:"story_id" jsonschema:"description=所属故事 ID,required"`
+	Title                string          `json:"title,omitempty" jsonschema:"description=故事板标题"`
+	RawInput             string          `json:"raw_input" jsonschema:"description=用户原始输入,required"`
+	SceneCount           int             `json:"scene_count,omitempty" jsonschema:"description=场景数量,2-8"`
+	CharacterRefs        []CharRef       `json:"character_refs,omitempty" jsonschema:"description=关联角色"`
 	SceneRefs            []SceneRefInput `json:"scene_refs,omitempty" jsonschema:"description=关联故事场景"`
-	Tags                 []string       `json:"tags,omitempty" jsonschema:"description=标签"`
-	UseComicPagePipeline bool           `json:"use_comic_page_pipeline,omitempty" jsonschema:"description=是否使用漫画页管线（多格拼贴出图）"`
+	Tags                 []string        `json:"tags,omitempty" jsonschema:"description=标签"`
+	UseComicPagePipeline bool            `json:"use_comic_page_pipeline,omitempty" jsonschema:"description=是否使用漫画页管线（多格拼贴出图）"`
 }
 
 type CreateStoryboardOutput struct {

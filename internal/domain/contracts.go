@@ -75,6 +75,10 @@ type StoryboardGenerateInput struct {
 	SceneCount           int      `json:"sceneCount,omitempty"`
 	CharacterIDs         []string `json:"characterIds,omitempty"`
 	Style                string   `json:"style,omitempty"`
+	ComicStyle           string   `json:"comicStyle,omitempty"`
+	AspectRatio          string   `json:"aspectRatio,omitempty"`
+	ParentStoryboardID   string   `json:"parentStoryboardId,omitempty"`
+	DraftStoryboardID    string   `json:"draftStoryboardId,omitempty"`
 	UseComicPagePipeline bool     `json:"useComicPagePipeline,omitempty"`
 	GenerateImages       bool     `json:"generateImages,omitempty"`
 	PollProgress         *bool    `json:"pollProgress,omitempty"` // nil/true: wait for create-time redesign; false: return after create

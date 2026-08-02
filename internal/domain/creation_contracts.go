@@ -54,4 +54,6 @@ type CreationOptions struct {
 	IncludeGenerationTrace bool                    `json:"includeGenerationTrace,omitempty"`
 	PollIntervalSec        int                     `json:"pollIntervalSec,omitempty"`
 	PollTimeoutSec         int                     `json:"pollTimeoutSec,omitempty"`
+	UseComicPagePipeline   bool                    `json:"useComicPagePipeline,omitempty"`
+	CharacterIDs           []string                `json:"characterIds,omitempty"`
 }

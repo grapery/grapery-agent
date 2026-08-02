@@ -77,6 +77,12 @@ func (h *GenerationHandler) streamCreationMessage(c *gin.Context) {
 			return
 		}
 		h.streamCreationFragment(c, req, writeEvent)
+	case "storyboard":
+		if req.Options.PlanningOnly {
+			h.streamCreationStoryboardPlanning(c, req, writeEvent)
+			return
+		}
+		h.streamCreationStoryboard(c, req, writeEvent)
 	case "story":
 		h.streamCreationStory(c, req, writeEvent)
 	case "branch":
@@ -165,6 +171,110 @@ func (h *GenerationHandler) streamCreationFragment(c *gin.Context, req domain.Cr
 		})
 	}
 	h.streamRunSSEWithPrefix(c, run.ID, "creation", writeEvent)
+}
+
+func (h *GenerationHandler) streamCreationStoryboardPlanning(c *gin.Context, req domain.CreationMessageRequest, writeEvent func(string, gin.H)) {
+	if h.client == nil {
+		writeEvent("failed", gin.H{"event": "failed", "message": "grapery client unavailable", "status": "failed"})
+		return
+	}
+	resp, err := h.client.AnalyzeStoryboard(c.Request.Context(), grapery_client.AnalyzeStoryboardRequest{
+		UserInput:               req.Message,
+		Language:                defaultCreationString(req.Options.Language, "zh-Hans"),
+		SceneCount:              req.Options.SceneCount,
+		Style:                   req.Options.Style,
+		StoryID:                 strings.TrimSpace(req.Context.StoryID),
+		ParentStoryboardID:      firstNonEmpty(req.Context.ParentStoryboardID, req.Context.BranchID),
+		TargetDraftStoryboardID: strings.TrimSpace(req.Context.DraftID),
+	})
+	if err != nil {
+		writeEvent("failed", gin.H{"event": "failed", "message": err.Error(), "status": "failed"})
+		return
+	}
+	output := gin.H{
+		"assistantMessage":    resp.AssistantMessage,
+		"intentType":          resp.IntentType,
+		"generationIntent":    resp.GenerationIntent,
+		"characterCandidates": resp.CharacterCandidates,
+		"recommendedOptions":  resp.RecommendedOptions,
+		"targetType":          "storyboard",
+		"clientRequestId":     req.ClientRequestID,
+	}
+	writeEvent("planning", gin.H{
+		"event":           "planning",
+		"targetType":      "storyboard",
+		"message":         resp.AssistantMessage,
+		"output":          output,
+		"clientRequestId": req.ClientRequestID,
+	})
+	writeEvent("completed", gin.H{
+		"event":           "completed",
+		"targetType":      "storyboard",
+		"output":          output,
+		"clientRequestId": req.ClientRequestID,
+	})
+}
+
+func (h *GenerationHandler) streamCreationStoryboard(c *gin.Context, req domain.CreationMessageRequest, writeEvent func(string, gin.H)) {
+	in := creationStoryboardIntent(req)
+	writeEvent("intent", gin.H{
+		"event":      "intent",
+		"intent":     "create",
+		"targetType": "storyboard",
+		"sceneCount": in.SceneCount,
+	})
+	writeEvent("assistant_message", gin.H{
+		"event":   "assistant_message",
+		"message": "好的，我会把你的故事走向整理成完整故事板。",
+	})
+	run, err := h.gen.StartStoryboard(c.Request.Context(), in)
+	if err != nil {
+		writeEvent("failed", gin.H{"event": "failed", "message": err.Error(), "status": "failed"})
+		return
+	}
+	if run.ContentIDs.StoryboardID != "" {
+		writeEvent("task_started", gin.H{
+			"event":             "task_started",
+			"runId":             run.ID,
+			"storyboardId":      run.ContentIDs.StoryboardID,
+			"draftStoryboardId": run.ContentIDs.StoryboardID,
+			"targetType":        "storyboard",
+			"clientRequestId":   req.ClientRequestID,
+		})
+	}
+	h.streamRunSSEWithPrefix(c, run.ID, "creation", writeEvent)
+}
+
+func creationStoryboardIntent(req domain.CreationMessageRequest) domain.StoryboardGenerateInput {
+	opts := req.Options
+	ctx := req.Context
+	sceneCount := opts.SceneCount
+	if sceneCount <= 0 {
+		sceneCount = 3
+	}
+	if sceneCount > 8 {
+		sceneCount = 8
+	}
+	style := defaultCreationString(opts.Style, "fantasy")
+	draftID := strings.TrimSpace(ctx.DraftID)
+	// Only an explicit edit turn re-runs the structure pipeline; a freshly created
+	// draft already has one running from grapery's create hook.
+	regenerate := draftID != "" && strings.EqualFold(strings.TrimSpace(ctx.Surface), "storyboard_edit")
+	return domain.StoryboardGenerateInput{
+		StoryID:              strings.TrimSpace(ctx.StoryID),
+		RawInput:             req.Message,
+		SceneCount:           sceneCount,
+		Style:                style,
+		ComicStyle:           style,
+		AspectRatio:          defaultCreationString(opts.AspectRatio, "9:16"),
+		ParentStoryboardID:   firstNonEmpty(ctx.ParentStoryboardID, ctx.BranchID),
+		DraftStoryboardID:    draftID,
+		CharacterIDs:         opts.CharacterIDs,
+		UseComicPagePipeline: opts.UseComicPagePipeline,
+		RegenerateStructure:  regenerate,
+		GenerateImages:       true,
+		PollTimeoutSec:       opts.PollTimeoutSec,
+	}
 }
 
 func (h *GenerationHandler) streamCreationStory(c *gin.Context, req domain.CreationMessageRequest, writeEvent func(string, gin.H)) {
@@ -384,6 +494,8 @@ func normalizeCreationTarget(values ...string) string {
 		switch strings.ToLower(strings.TrimSpace(value)) {
 		case "fragment", "story_fragment", "story-fragment":
 			return "fragment"
+		case "storyboard", "story_board", "story-board":
+			return "storyboard"
 		case "story":
 			return "story"
 		case "branch", "story_branch", "story-branch":

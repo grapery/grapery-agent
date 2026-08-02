@@ -218,6 +218,16 @@ func generationStepMessageKey(step string) string {
 		return "fragment_generation_checking_consistency"
 	case "poll_task_status":
 		return "fragment_generation_waiting_images"
+	case "context":
+		return "storyboard_generation_reading_context"
+	case "bible_plan":
+		return "storyboard_generation_planning_bible"
+	case "scene_plan":
+		return "storyboard_generation_writing_scenes"
+	case "image":
+		return "storyboard_generation_generating_images"
+	case "consistency_audit":
+		return "storyboard_generation_checking_consistency"
 	default:
 		return ""
 	}

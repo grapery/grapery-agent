@@ -5,17 +5,17 @@ import "context"
 // ============ Storyboard Generation ============
 
 type CreateStoryboardRequest struct {
-	StoryID               string                `json:"storyId"`
-	ParentID              string                `json:"parentId,omitempty"`
-	Title                 string                `json:"title,omitempty"`
-	RawInput              string                `json:"rawInput"`
-	Content               string                `json:"content,omitempty"`
-	IsStandalone          bool                  `json:"isStandalone"`
-	SceneCount            int                   `json:"sceneCount,omitempty"`
-	CharacterRefs         []CharacterRef        `json:"characterRefs,omitempty"`
-	SceneRefs             []SceneRef            `json:"sceneRefs,omitempty"`
-	Tags                  []string              `json:"tags,omitempty"`
-	UseComicPagePipeline  bool                  `json:"useComicPagePipeline"`
+	StoryID              string         `json:"storyId"`
+	ParentID             string         `json:"parentId,omitempty"`
+	Title                string         `json:"title,omitempty"`
+	RawInput             string         `json:"rawInput"`
+	Content              string         `json:"content,omitempty"`
+	IsStandalone         bool           `json:"isStandalone"`
+	SceneCount           int            `json:"sceneCount,omitempty"`
+	CharacterRefs        []CharacterRef `json:"characterRefs,omitempty"`
+	SceneRefs            []SceneRef     `json:"sceneRefs,omitempty"`
+	Tags                 []string       `json:"tags,omitempty"`
+	UseComicPagePipeline bool           `json:"useComicPagePipeline"`
 }
 
 type CharacterRef struct {
@@ -83,8 +83,8 @@ type ContinueStoryboardRequest struct {
 }
 
 type ContinueStoryboardResponse struct {
-	NewStoryboard  *StoryboardResponse `json:"newStoryboard"`
-	TokensUsed     int                 `json:"tokensUsed"`
+	NewStoryboard *StoryboardResponse `json:"newStoryboard"`
+	TokensUsed    int                 `json:"tokensUsed"`
 }
 
 type GenerateStructureResponse struct {
@@ -102,6 +102,53 @@ type GenerationProgressResponse struct {
 	HasPendingTasks       bool   `json:"hasPendingTasks"`
 	GenerationMessage     string `json:"generationMessage"`
 	SuggestedResumeAction string `json:"suggestedResumeAction,omitempty"`
+	// Fine-grained fields for conversational timeline (additive).
+	StepKey         string `json:"stepKey,omitempty"`
+	MessageKey      string `json:"messageKey,omitempty"`
+	Stage           string `json:"stage,omitempty"`
+	ProgressPercent int    `json:"progressPercent,omitempty"`
+}
+
+type AnalyzeStoryboardRequest struct {
+	UserInput               string `json:"userInput"`
+	StoryID                 string `json:"storyId,omitempty"`
+	ParentStoryboardID      string `json:"parentStoryboardId,omitempty"`
+	SceneCount              int    `json:"sceneCount,omitempty"`
+	Style                   string `json:"style,omitempty"`
+	Language                string `json:"language,omitempty"`
+	TargetDraftStoryboardID string `json:"targetDraftStoryboardId,omitempty"`
+	UseComicPagePipeline    *bool  `json:"useComicPagePipeline,omitempty"`
+}
+
+type AnalyzeStoryboardResponse struct {
+	AssistantMessage    string                         `json:"assistantMessage"`
+	IntentType          string                         `json:"intentType,omitempty"`
+	GenerationIntent    StoryboardGenerationIntent     `json:"generationIntent"`
+	CharacterCandidates []StoryboardCharacterCandidate `json:"characterCandidates,omitempty"`
+	RecommendedOptions  StoryboardRecommendedOptions   `json:"recommendedOptions"`
+}
+
+type StoryboardGenerationIntent struct {
+	UserInput             string   `json:"userInput"`
+	SceneCount            int      `json:"sceneCount"`
+	Style                 string   `json:"style,omitempty"`
+	Language              string   `json:"language,omitempty"`
+	StoryID               string   `json:"storyId,omitempty"`
+	ParentStoryboardID    string   `json:"parentStoryboardId,omitempty"`
+	CharacterIDs          []string `json:"characterIds,omitempty"`
+	UseComicPagePipeline  bool     `json:"useComicPagePipeline,omitempty"`
+	TargetDraftStoryboard string   `json:"targetDraftStoryboardId,omitempty"`
+}
+
+type StoryboardCharacterCandidate struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name"`
+	Hint string `json:"hint,omitempty"`
+}
+
+type StoryboardRecommendedOptions struct {
+	StyleCandidates []string `json:"styleCandidates,omitempty"`
+	CanStart        bool     `json:"canStart"`
 }
 
 type GenerateComicPageRequest struct {
@@ -180,9 +227,17 @@ func (c *Client) ContinueStoryboard(ctx context.Context, storyboardID string, re
 	return &resp, nil
 }
 
-func (c *Client) GenerateStructure(ctx context.Context, storyboardID string) (*GenerateStructureResponse, error) {
+// GenerateStructureRequest carries this turn's revision instruction. All fields are
+// optional; an empty request keeps the legacy "resume a stalled draft" behaviour.
+type GenerateStructureRequest struct {
+	UserDirective string `json:"userDirective,omitempty"`
+	SceneCount    int    `json:"sceneCount,omitempty"`
+	ComicStyle    string `json:"comicStyle,omitempty"`
+}
+
+func (c *Client) GenerateStructure(ctx context.Context, storyboardID string, req GenerateStructureRequest) (*GenerateStructureResponse, error) {
 	var resp GenerateStructureResponse
-	if err := c.post(ctx, "/api/v1/storyboards/"+storyboardID+"/generate/structure", nil, &resp); err != nil {
+	if err := c.post(ctx, "/api/v1/storyboards/"+storyboardID+"/generate/structure", req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -204,6 +259,14 @@ func (c *Client) GenerateAllComicPages(ctx context.Context, storyboardID string,
 func (c *Client) GetGenerationProgress(ctx context.Context, storyboardID string) (*GenerationProgressResponse, error) {
 	var resp GenerationProgressResponse
 	if err := c.get(ctx, "/api/v1/storyboards/"+storyboardID+"/generation-progress", &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Client) AnalyzeStoryboard(ctx context.Context, req AnalyzeStoryboardRequest) (*AnalyzeStoryboardResponse, error) {
+	var resp AnalyzeStoryboardResponse
+	if err := c.post(ctx, "/api/v1/storyboards/analyze", req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
