@@ -87,6 +87,7 @@ type StoryboardGenerateInput struct {
 	PollProgress         *bool    `json:"pollProgress,omitempty"` // nil/true: wait for create-time redesign; false: return after create
 	RegenerateStructure  bool     `json:"regenerateStructure,omitempty"`
 	PollTimeoutSec       int      `json:"pollTimeoutSec,omitempty"`
+	WorkflowReleaseID    string   `json:"workflowReleaseId,omitempty"`
 }
 
 // CharacterGenerateInput drives attribute gen + optional create + portrait (CharacterDesigner).
@@ -116,4 +117,13 @@ type BranchExploreInput struct {
 	Characters         []string `json:"characters,omitempty"`
 	Strategies         []string `json:"strategies,omitempty"`
 	ComicStyle         string   `json:"comicStyle,omitempty"`
+}
+
+type WorkflowStartInput struct {
+	Surface         string         `json:"surface"`
+	Action          string         `json:"action"`
+	TenantID        string         `json:"tenantId,omitempty"`
+	ReleaseID       string         `json:"releaseId,omitempty"`
+	ClientRequestID string         `json:"clientRequestId,omitempty"`
+	Input           map[string]any `json:"input"`
 }

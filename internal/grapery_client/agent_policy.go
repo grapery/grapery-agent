@@ -85,12 +85,20 @@ func (c *Client) ListGenerationExecutions(ctx context.Context, kind domain.RunKi
 }
 
 func (c *Client) SaveGenerationCheckpoint(ctx context.Context, id string, state []byte) error {
+	return c.SaveFencedGenerationCheckpoint(ctx, id, "", "", state)
+}
+
+func (c *Client) SaveFencedGenerationCheckpoint(ctx context.Context, id, runID, leaseValue string, state []byte) error {
 	path := "/api/v1/agent-policy/generation-checkpoints/" + url.PathEscape(id)
 	var out struct {
 		Code    int    `json:"code"`
 		Message string `json:"message"`
 	}
-	if err := c.putInternalJSON(ctx, path, map[string]string{"state": base64.StdEncoding.EncodeToString(state)}, &out); err != nil {
+	body := map[string]string{"state": base64.StdEncoding.EncodeToString(state)}
+	if runID = strings.TrimSpace(runID); runID != "" {
+		body["runId"] = runID
+	}
+	if err := c.saveGenerationExecutionJSON(ctx, path, body, leaseValue, &out); err != nil {
 		return err
 	}
 	if out.Code != 1 {

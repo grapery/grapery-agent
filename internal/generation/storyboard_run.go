@@ -291,7 +291,14 @@ func (s *Service) createStoryboard(ctx context.Context, in domain.StoryboardGene
 		if comicStyle == "" {
 			comicStyle = strings.TrimSpace(in.Style)
 		}
-		resp, err := s.client.CreateStoryboard(c, grapery_client.CreateStoryboardRequest{
+		idempotencyKey := strings.TrimSpace(in.ClientRequestID)
+		if idempotencyKey == "" {
+			if runID, ok := runstore.RunIDFromContext(c); ok {
+				idempotencyKey = "storyboard:" + runID
+			}
+		}
+		requestContext := grapery_client.ContextWithIdempotencyKey(c, idempotencyKey)
+		resp, err := s.client.CreateStoryboard(requestContext, grapery_client.CreateStoryboardRequest{
 			StoryID:              in.StoryID,
 			ParentID:             parentID,
 			Title:                in.Title,
@@ -299,6 +306,7 @@ func (s *Service) createStoryboard(ctx context.Context, in domain.StoryboardGene
 			SceneCount:           defaultInt(in.SceneCount, 3),
 			CharacterRefs:        charRefs,
 			UseComicPagePipeline: in.UseComicPagePipeline,
+			WorkflowReleaseID:    in.WorkflowReleaseID,
 		})
 		if err != nil {
 			return nil, err

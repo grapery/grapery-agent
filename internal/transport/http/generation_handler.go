@@ -48,6 +48,7 @@ func (h *GenerationHandler) RegisterRoutes(r *gin.Engine, auth agentAuthDeps, cl
 		g.POST("/storyboards", h.startStoryboard)
 		g.POST("/characters", h.startCharacter)
 		g.POST("/branches", h.startBranches)
+		g.POST("/workflows", h.startWorkflow)
 
 		g.GET("/runs/:id", h.getRun)
 		g.GET("/runs", h.listRuns)
@@ -173,6 +174,20 @@ func (h *GenerationHandler) startBranches(c *gin.Context) {
 	run, err := h.gen.StartBranchBatch(c.Request.Context(), in)
 	if err != nil {
 		h.fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.ok(c, run)
+}
+
+func (h *GenerationHandler) startWorkflow(c *gin.Context) {
+	var in domain.WorkflowStartInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		h.fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	run, err := h.gen.StartWorkflow(c.Request.Context(), in)
+	if err != nil {
+		h.fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	h.ok(c, run)

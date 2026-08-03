@@ -191,6 +191,18 @@ func cloneRun(r *domain.GenerationRun) *domain.GenerationRun {
 	cp := *r
 	cp.Input = cloneMap(r.Input)
 	cp.Output = cloneMap(r.Output)
+	if r.PromptBundle != nil {
+		cp.PromptBundle = make(map[string]string, len(r.PromptBundle))
+		for key, value := range r.PromptBundle {
+			cp.PromptBundle[key] = value
+		}
+	}
+	if r.PromptSnapshots != nil {
+		cp.PromptSnapshots = make(map[string]domain.PromptTemplateVersion, len(r.PromptSnapshots))
+		for key, value := range r.PromptSnapshots {
+			cp.PromptSnapshots[key] = value
+		}
+	}
 	if len(r.ToolCalls) > 0 {
 		cp.ToolCalls = append([]domain.ToolCallRecord(nil), r.ToolCalls...)
 	}

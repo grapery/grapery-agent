@@ -13,6 +13,7 @@ import (
 )
 
 type contextKey struct{}
+type idempotencyContextKey struct{}
 
 // ContextWithAuthToken 将 auth token 存入 context，供并发安全的请求级传递
 func ContextWithAuthToken(ctx context.Context, token string) context.Context {
@@ -23,6 +24,10 @@ func ContextWithAuthToken(ctx context.Context, token string) context.Context {
 func AuthTokenFromContext(ctx context.Context) (string, bool) {
 	t, ok := ctx.Value(contextKey{}).(string)
 	return t, ok && t != ""
+}
+
+func ContextWithIdempotencyKey(ctx context.Context, key string) context.Context {
+	return context.WithValue(ctx, idempotencyContextKey{}, key)
 }
 
 // Client 是 grapery 后端的 HTTP 客户端
@@ -36,7 +41,9 @@ func NewClient(cfg config.GraperyConfig) *Client {
 	return &Client{
 		baseURL: cfg.BaseURL,
 		httpClient: &http.Client{
-			Timeout: 180 * time.Second,
+			// A workflow text stage may legitimately wait behind provider queues for
+			// hours. The workflow context remains the primary cancellation boundary.
+			Timeout: 12*time.Hour + 5*time.Minute,
 		},
 		authToken: cfg.APIKey,
 	}
@@ -91,6 +98,9 @@ func (c *Client) doRawRequest(ctx context.Context, method, path string, body int
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	if key, _ := ctx.Value(idempotencyContextKey{}).(string); key != "" {
+		req.Header.Set("Idempotency-Key", key)
+	}
 	if token := c.tokenFromContext(ctx); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -135,6 +145,9 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	if key, _ := ctx.Value(idempotencyContextKey{}).(string); key != "" {
+		req.Header.Set("Idempotency-Key", key)
+	}
 	if token := c.tokenFromContext(ctx); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}

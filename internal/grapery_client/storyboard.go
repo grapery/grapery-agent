@@ -16,6 +16,7 @@ type CreateStoryboardRequest struct {
 	SceneRefs            []SceneRef     `json:"sceneRefs,omitempty"`
 	Tags                 []string       `json:"tags,omitempty"`
 	UseComicPagePipeline bool           `json:"useComicPagePipeline"`
+	WorkflowReleaseID    string         `json:"workflowReleaseId,omitempty"`
 }
 
 type CharacterRef struct {
@@ -91,6 +92,23 @@ type GenerateStructureResponse struct {
 	AsyncAccepted      bool                        `json:"asyncAccepted"`
 	Storyboard         *StoryboardResponse         `json:"storyboard,omitempty"`
 	GenerationProgress *GenerationProgressResponse `json:"generationProgress,omitempty"`
+}
+
+type StoryboardWorkflowStageResponse struct {
+	StoryboardID    string `json:"storyboardId"`
+	GenerationRunID string `json:"generationRunId"`
+	Stage           string `json:"stage"`
+	Progress        int    `json:"progress"`
+	AlreadyComplete bool   `json:"alreadyComplete"`
+}
+
+type StoryboardWorkflowStageRequest struct {
+	GenerationRunID     string `json:"generationRunId,omitempty"`
+	ClientRequestID     string `json:"clientRequestId,omitempty"`
+	RegenerateStructure bool   `json:"regenerateStructure,omitempty"`
+	UserDirective       string `json:"userDirective,omitempty"`
+	SceneCount          int    `json:"sceneCount,omitempty"`
+	ComicStyle          string `json:"comicStyle,omitempty"`
 }
 
 type GenerationProgressResponse struct {
@@ -238,6 +256,14 @@ type GenerateStructureRequest struct {
 func (c *Client) GenerateStructure(ctx context.Context, storyboardID string, req GenerateStructureRequest) (*GenerateStructureResponse, error) {
 	var resp GenerateStructureResponse
 	if err := c.post(ctx, "/api/v1/storyboards/"+storyboardID+"/generate/structure", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Client) ExecuteStoryboardWorkflowStage(ctx context.Context, storyboardID, stage string, req StoryboardWorkflowStageRequest) (*StoryboardWorkflowStageResponse, error) {
+	var resp StoryboardWorkflowStageResponse
+	if err := c.post(ctx, "/api/v1/storyboards/"+storyboardID+"/generate/stages/"+stage, req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

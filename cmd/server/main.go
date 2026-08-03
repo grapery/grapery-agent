@@ -61,6 +61,11 @@ func main() {
 		log.Printf("WARNING: GRAPERY_API_KEY is empty; generation runs and checkpoints are not durable")
 	}
 	genSvc := generation.NewService(client, runStore, cfg.Eino.TextProvider, cfg.Eino.TextModel, cfg.AgentAuth.ExecFragmentPanelEnabled)
+	if cfg.Grapery.APIKey != "" {
+		if err := genSvc.ResumeWorkflows(ctx); err != nil {
+			log.Printf("workflow recovery scan failed: %v", err)
+		}
+	}
 	genHandler := http.NewGenerationHandler(genSvc, runStore, cfg.Artifact.ExportDir, cfg.AgentAuth)
 
 	// 6. 创建 HTTP Handler

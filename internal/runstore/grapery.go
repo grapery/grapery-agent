@@ -28,6 +28,30 @@ type leaseHandle struct {
 	cancel context.CancelFunc
 }
 
+// ClaimRun acquires the durable execution lease for a run recovered after an
+// agent restart. A false result means another healthy agent owns the run.
+func (s *GraperyStore) ClaimRun(ctx context.Context, id string) (bool, error) {
+	run, err := s.client.GetGenerationExecution(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	if isTerminalStatus(run.Status) {
+		return false, nil
+	}
+	lease, acquired, err := s.client.AcquireGenerationLease(ctx, id, s.owner, int(generationLeaseTTL/time.Second))
+	if err != nil {
+		return false, err
+	}
+	if !acquired || lease == nil {
+		return false, nil
+	}
+	s.cache(run)
+	s.startLeaseRenewal(id, lease.Value)
+	return true, nil
+}
+
+func (s *GraperyStore) GenerationLeaseValue(runID string) string { return s.leaseValue(runID) }
+
 const (
 	generationLeaseTTL     = 5 * time.Minute
 	generationLeaseRenewal = time.Minute

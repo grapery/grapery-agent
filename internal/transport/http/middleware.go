@@ -132,6 +132,8 @@ func expectedScopeForPath(method, path string) (agent, operation string, enforce
 			return "story", "generate", true
 		case "branches":
 			return "branch", "generate", true
+		case "workflows":
+			return "", "", false
 		}
 	case strings.Contains(path, "/generation/") && strings.HasSuffix(path, "/stream"):
 		rest := strings.TrimPrefix(path, "/api/v1/generation/")

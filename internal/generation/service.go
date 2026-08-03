@@ -8,6 +8,7 @@ import (
 	"github.com/grapestree/fgrapery/grapery-agent/internal/domain"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/grapery_client"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/runstore"
+	workflowruntime "github.com/grapestree/fgrapery/grapery-agent/internal/workflow"
 )
 
 const maxGenerationPollDuration = 12 * time.Hour
@@ -25,21 +26,24 @@ func generationPollTimeout(seconds int) time.Duration {
 
 // Service orchestrates non-chat generation runs with tracing.
 type Service struct {
-	client            *grapery_client.Client
-	store             runstore.Store
-	provider          string
-	model             string
-	execFragmentPanel bool
+	client             *grapery_client.Client
+	store              runstore.Store
+	provider           string
+	model              string
+	execFragmentPanel  bool
+	workflowActivities *workflowruntime.ActivityRegistry
 }
 
 func NewService(client *grapery_client.Client, store runstore.Store, textProvider, textModel string, execFragmentPanel bool) *Service {
-	return &Service{
+	service := &Service{
 		client:            client,
 		store:             store,
 		provider:          textProvider,
 		model:             textModel,
 		execFragmentPanel: execFragmentPanel,
 	}
+	service.workflowActivities = service.newWorkflowActivityRegistry()
+	return service
 }
 
 func (s *Service) GetRun(ctx context.Context, id string) (*domain.GenerationRun, error) {

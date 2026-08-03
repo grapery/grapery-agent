@@ -12,6 +12,7 @@ const (
 	RunKindStoryboard    RunKind = "storyboard"
 	RunKindCharacter     RunKind = "character"
 	RunKindBranchBatch   RunKind = "branch_batch"
+	RunKindWorkflow      RunKind = "workflow"
 )
 
 // RunStatus is the lifecycle state of a generation run.
@@ -36,38 +37,45 @@ const (
 	AgentStoryboardDirector   AgentVersion = "storyboard_director:v1"
 	AgentBranchExplorer       AgentVersion = "branch_explorer:v1"
 	AgentStoryGenerator       AgentVersion = "story_generator:v1"
+	AgentWorkflowRuntime      AgentVersion = "workflow_runtime:v1"
 )
 
 // GenerationRun is the unified traceable unit for all agent-orchestrated generation.
 type GenerationRun struct {
-	ID              string                `json:"id"`
-	UserID          string                `json:"userId,omitempty"`
-	Kind            RunKind               `json:"kind"`
-	Status          RunStatus             `json:"status"`
-	Phase           string                `json:"phase,omitempty"`
-	Progress        int                   `json:"progress,omitempty"`
-	AgentVersion    AgentVersion          `json:"agentVersion"`
-	UserIntent      string                `json:"userIntent,omitempty"`
-	Input           map[string]any        `json:"input,omitempty"`
-	Output          map[string]any        `json:"output,omitempty"`
-	ParentRunID     string                `json:"parentRunId,omitempty"`
-	BranchIndex     int                   `json:"branchIndex,omitempty"`
-	Strategy        string                `json:"strategy,omitempty"`
-	ContentIDs      ContentRef            `json:"contentIds,omitempty"`
-	ToolCalls       []ToolCallRecord      `json:"toolCalls,omitempty"`
-	StepAudits      []GenerationStepAudit `json:"stepAudits,omitempty"`
-	Error           string                `json:"error,omitempty"`
-	TokensUsed      int                   `json:"tokensUsed,omitempty"`
-	ModelProvider   string                `json:"modelProvider,omitempty"`
-	ModelName       string                `json:"modelName,omitempty"`
-	CheckpointID    string                `json:"checkpointId,omitempty"`
-	ClientRequestID string                `json:"clientRequestId,omitempty"`
-	SourceTaskID    string                `json:"sourceTaskId,omitempty"`
-	Sequence        int64                 `json:"sequence,omitempty"`
-	Reused          bool                  `json:"reused,omitempty"`
-	CreatedAt       time.Time             `json:"createdAt"`
-	UpdatedAt       time.Time             `json:"updatedAt"`
-	CompletedAt     *time.Time            `json:"completedAt,omitempty"`
+	ID                string                           `json:"id"`
+	UserID            string                           `json:"userId,omitempty"`
+	Kind              RunKind                          `json:"kind"`
+	Status            RunStatus                        `json:"status"`
+	Phase             string                           `json:"phase,omitempty"`
+	Progress          int                              `json:"progress,omitempty"`
+	AgentVersion      AgentVersion                     `json:"agentVersion"`
+	WorkflowReleaseID string                           `json:"workflowReleaseId,omitempty"`
+	WorkflowKey       string                           `json:"workflowKey,omitempty"`
+	WorkflowVersion   int                              `json:"workflowVersion,omitempty"`
+	WorkflowChecksum  string                           `json:"workflowChecksum,omitempty"`
+	PromptBundle      map[string]string                `json:"promptBundle,omitempty"`
+	PromptSnapshots   map[string]PromptTemplateVersion `json:"promptSnapshots,omitempty"`
+	UserIntent        string                           `json:"userIntent,omitempty"`
+	Input             map[string]any                   `json:"input,omitempty"`
+	Output            map[string]any                   `json:"output,omitempty"`
+	ParentRunID       string                           `json:"parentRunId,omitempty"`
+	BranchIndex       int                              `json:"branchIndex,omitempty"`
+	Strategy          string                           `json:"strategy,omitempty"`
+	ContentIDs        ContentRef                       `json:"contentIds,omitempty"`
+	ToolCalls         []ToolCallRecord                 `json:"toolCalls,omitempty"`
+	StepAudits        []GenerationStepAudit            `json:"stepAudits,omitempty"`
+	Error             string                           `json:"error,omitempty"`
+	TokensUsed        int                              `json:"tokensUsed,omitempty"`
+	ModelProvider     string                           `json:"modelProvider,omitempty"`
+	ModelName         string                           `json:"modelName,omitempty"`
+	CheckpointID      string                           `json:"checkpointId,omitempty"`
+	ClientRequestID   string                           `json:"clientRequestId,omitempty"`
+	SourceTaskID      string                           `json:"sourceTaskId,omitempty"`
+	Sequence          int64                            `json:"sequence,omitempty"`
+	Reused            bool                             `json:"reused,omitempty"`
+	CreatedAt         time.Time                        `json:"createdAt"`
+	UpdatedAt         time.Time                        `json:"updatedAt"`
+	CompletedAt       *time.Time                       `json:"completedAt,omitempty"`
 }
 
 // StepAuditStatus 是单步审计状态。
