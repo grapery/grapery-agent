@@ -21,6 +21,7 @@ type AgentAuthConfig struct {
 	ReplayCacheEnabled       bool
 	ExecFragmentPanelEnabled bool
 	AuditSyncEnabled         bool
+	DurableRuntimeRequired   bool
 }
 
 type ArtifactConfig struct {
@@ -84,6 +85,7 @@ func Load() *Config {
 			ReplayCacheEnabled:       getEnvBool("AGENT_TOKEN_REPLAY_CACHE_ENABLED", false),
 			ExecFragmentPanelEnabled: getEnvBool("AGENT_EXEC_FRAGMENT_PANEL_ENABLED", true),
 			AuditSyncEnabled:         getEnvBool("AUDIT_SYNC_TO_GRAPERY_ENABLED", true),
+			DurableRuntimeRequired:   getEnvBool("DURABLE_RUNTIME_REQUIRED", isProductionEnvironment()),
 		},
 		Eino: EinoConfig{
 			TextModel:      loadTextModel(),
@@ -97,6 +99,16 @@ func Load() *Config {
 			VideoModel:     getEnv("HUOSHAN_VIDEO_MODEL", "doubao-seedance-1-5-pro-251215"),
 		},
 	}
+}
+
+func isProductionEnvironment() bool {
+	for _, key := range []string{"APP_ENV", "ENVIRONMENT", "GIN_MODE"} {
+		value := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+		if value == "production" || value == "prod" || value == "release" {
+			return true
+		}
+	}
+	return false
 }
 
 func loadTextModel() string {

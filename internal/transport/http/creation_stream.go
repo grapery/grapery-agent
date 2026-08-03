@@ -261,6 +261,7 @@ func creationStoryboardIntent(req domain.CreationMessageRequest) domain.Storyboa
 	// draft already has one running from grapery's create hook.
 	regenerate := draftID != "" && strings.EqualFold(strings.TrimSpace(ctx.Surface), "storyboard_edit")
 	return domain.StoryboardGenerateInput{
+		ClientRequestID:      strings.TrimSpace(req.ClientRequestID),
 		StoryID:              strings.TrimSpace(ctx.StoryID),
 		RawInput:             req.Message,
 		SceneCount:           sceneCount,
@@ -279,10 +280,11 @@ func creationStoryboardIntent(req domain.CreationMessageRequest) domain.Storyboa
 
 func (h *GenerationHandler) streamCreationStory(c *gin.Context, req domain.CreationMessageRequest, writeEvent func(string, gin.H)) {
 	in := domain.StoryGenerateInput{
-		Prompt:  req.Message,
-		Style:   req.Options.Style,
-		Length:  req.Options.Length,
-		Context: firstNonEmpty(req.Context.StoryID, req.Context.DraftID),
+		ClientRequestID: req.ClientRequestID,
+		Prompt:          req.Message,
+		Style:           req.Options.Style,
+		Length:          req.Options.Length,
+		Context:         firstNonEmpty(req.Context.StoryID, req.Context.DraftID),
 	}
 	writeEvent("intent", gin.H{
 		"event":      "intent",
@@ -313,6 +315,7 @@ func (h *GenerationHandler) streamCreationBranch(c *gin.Context, req domain.Crea
 		return
 	}
 	in := domain.BranchExploreInput{
+		ClientRequestID:    req.ClientRequestID,
 		ParentStoryboardID: parentStoryboardID,
 		SeedPrompt:         req.Message,
 		BranchCount:        defaultCreationInt(req.Options.BranchCount, 3),

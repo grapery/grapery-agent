@@ -10,6 +10,19 @@ import (
 	"github.com/grapestree/fgrapery/grapery-agent/internal/runstore"
 )
 
+const maxGenerationPollDuration = 12 * time.Hour
+
+func generationPollTimeout(seconds int) time.Duration {
+	if seconds <= 0 {
+		return maxGenerationPollDuration
+	}
+	timeout := time.Duration(seconds) * time.Second
+	if timeout > maxGenerationPollDuration {
+		return maxGenerationPollDuration
+	}
+	return timeout
+}
+
 // Service orchestrates non-chat generation runs with tracing.
 type Service struct {
 	client            *grapery_client.Client

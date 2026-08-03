@@ -10,10 +10,13 @@ import (
 )
 
 func (s *Service) StartStory(ctx context.Context, in domain.StoryGenerateInput) (*domain.GenerationRun, error) {
-	input := map[string]any{"prompt": in.Prompt, "style": in.Style}
+	input := map[string]any{"clientRequestId": in.ClientRequestID, "prompt": in.Prompt, "style": in.Style}
 	run, err := s.store.CreateRun(ctx, domain.RunKindStory, domain.AgentStoryGenerator, in.Prompt, input)
 	if err != nil {
 		return nil, err
+	}
+	if run.Reused {
+		return run, nil
 	}
 	go s.executeStory(context.Background(), run.ID, in)
 	return run, nil
@@ -49,7 +52,7 @@ func (s *Service) executeStory(ctx context.Context, runID string, in domain.Stor
 		r.ContentIDs = content
 	})
 
-	deadline := time.Now().Add(10 * time.Minute)
+	deadline := time.Now().Add(generationPollTimeout(0))
 	for time.Now().Before(deadline) {
 		st, pollErr := tracedClientCall(ctx, s.store, "poll_ai_task", map[string]any{"taskId": taskID}, func(c context.Context) (map[string]any, error) {
 			resp, err := s.client.GetAITaskStatus(c, taskID)

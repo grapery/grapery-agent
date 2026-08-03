@@ -12,6 +12,7 @@ import (
 
 func (s *Service) StartFragmentPanel(ctx context.Context, in domain.FragmentPanelGenerateInput) (*domain.GenerationRun, error) {
 	input := map[string]any{
+		"clientRequestId":   in.ClientRequestID,
 		"userInput":         in.UserInput,
 		"referenceImageUrl": in.ReferenceImageURL,
 		"panelCount":        in.PanelCount,
@@ -19,6 +20,9 @@ func (s *Service) StartFragmentPanel(ctx context.Context, in domain.FragmentPane
 	run, err := s.store.CreateRun(ctx, domain.RunKindFragmentPanel, domain.AgentFragmentPanelCreator, in.UserInput, input)
 	if err != nil {
 		return nil, err
+	}
+	if run.Reused {
+		return run, nil
 	}
 	execCtx := context.Background()
 	if claims, ok := agentauth.ClaimsFromContext(ctx); ok {
@@ -34,7 +38,7 @@ func (s *Service) executeFragmentPanel(ctx context.Context, runID string, in dom
 	s.markRunning(ctx, runID)
 
 	pollInterval := time.Duration(defaultInt(in.PollIntervalSec, 5)) * time.Second
-	pollTimeout := time.Duration(defaultInt(in.PollTimeoutSec, 600)) * time.Second
+	pollTimeout := generationPollTimeout(in.PollTimeoutSec)
 	deadline := time.Now().Add(pollTimeout)
 	req := grapery_client.GenerateFragmentPanelRequest{
 		UserInput:              in.UserInput,

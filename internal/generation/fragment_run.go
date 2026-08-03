@@ -26,6 +26,9 @@ func (s *Service) StartFragment(ctx context.Context, in domain.FragmentGenerateI
 	if err != nil {
 		return nil, err
 	}
+	if run.Reused {
+		return run, nil
+	}
 
 	execCtx := context.Background()
 	if claims, ok := agentauth.ClaimsFromContext(ctx); ok {
@@ -44,7 +47,7 @@ func (s *Service) executeFragment(ctx context.Context, runID string, in domain.F
 	ctx = runstore.ContextWithRunID(ctx, runID)
 	s.markRunning(ctx, runID)
 	pollInterval := time.Duration(defaultInt(in.PollIntervalSec, 5)) * time.Second
-	pollTimeout := time.Duration(defaultInt(in.PollTimeoutSec, 600)) * time.Second
+	pollTimeout := generationPollTimeout(in.PollTimeoutSec)
 	deadline := time.Now().Add(pollTimeout)
 
 	req := grapery_client.GenerateFragmentRequest{

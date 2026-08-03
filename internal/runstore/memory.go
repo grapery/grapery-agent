@@ -38,10 +38,11 @@ func NewMemoryStore() *MemoryStore {
 	}
 }
 
-func (s *MemoryStore) CreateRun(_ context.Context, kind domain.RunKind, agent domain.AgentVersion, userIntent string, input map[string]any) (*domain.GenerationRun, error) {
+func (s *MemoryStore) CreateRun(ctx context.Context, kind domain.RunKind, agent domain.AgentVersion, userIntent string, input map[string]any) (*domain.GenerationRun, error) {
 	now := time.Now()
 	run := &domain.GenerationRun{
 		ID:           "run_" + uuid.New().String(),
+		UserID:       userIDFromContext(ctx),
 		Kind:         kind,
 		Status:       domain.RunStatusPending,
 		AgentVersion: agent,
@@ -52,12 +53,23 @@ func (s *MemoryStore) CreateRun(_ context.Context, kind domain.RunKind, agent do
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
+	run.ClientRequestID = stringInput(input, "clientRequestId", "clientMessageId")
+	run.SourceTaskID = stringInput(input, "taskId", "sourceTaskId")
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.evictRunsIfNeeded(1)
 	s.runs[run.ID] = run
 	s.runOrder = append(s.runOrder, run.ID)
 	return cloneRun(run), nil
+}
+
+func stringInput(input map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := input[key].(string); ok && value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (s *MemoryStore) GetRun(_ context.Context, id string) (*domain.GenerationRun, bool) {

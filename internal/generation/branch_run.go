@@ -20,6 +20,7 @@ func (s *Service) StartBranchBatch(ctx context.Context, in domain.BranchExploreI
 		strategies = prompt.DefaultBranchStrategies[:count]
 	}
 	input := map[string]any{
+		"clientRequestId":    in.ClientRequestID,
 		"parentStoryboardId": in.ParentStoryboardID,
 		"strategies":         strategies,
 		"seedPrompt":         in.SeedPrompt,
@@ -31,6 +32,9 @@ func (s *Service) StartBranchBatch(ctx context.Context, in domain.BranchExploreI
 	run, err := s.store.CreateRun(ctx, domain.RunKindBranchBatch, domain.AgentBranchExplorer, intent, input)
 	if err != nil {
 		return nil, err
+	}
+	if run.Reused {
+		return run, nil
 	}
 	go s.executeBranchBatch(context.Background(), run.ID, in, strategies)
 	return run, nil

@@ -2,6 +2,7 @@ package grapery_client
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,6 +11,177 @@ import (
 
 	"github.com/grapestree/fgrapery/grapery-agent/internal/domain"
 )
+
+// SaveGenerationExecution persists one complete run snapshot. Grapery assigns
+// the monotonic sequence and publishes the corresponding Redis Stream event.
+func (c *Client) SaveGenerationExecution(ctx context.Context, run *domain.GenerationRun, eventType, leaseValue string) (*domain.GenerationRun, error) {
+	path := "/api/v1/agent-policy/generation-executions/" + url.PathEscape(run.ID)
+	if eventType != "" {
+		path += "?eventType=" + url.QueryEscape(eventType)
+	}
+	var out struct {
+		Code    int                  `json:"code"`
+		Data    domain.GenerationRun `json:"data"`
+		Message string               `json:"message"`
+	}
+	if err := c.saveGenerationExecutionJSON(ctx, path, run, leaseValue, &out); err != nil {
+		return nil, err
+	}
+	if out.Code != 1 {
+		return nil, fmt.Errorf("save generation execution: %s", out.Message)
+	}
+	return &out.Data, nil
+}
+
+func (c *Client) saveGenerationExecutionJSON(ctx context.Context, path string, body interface{}, leaseValue string, dest interface{}) error {
+	b, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL+path, strings.NewReader(string(b)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Api-Key", c.authToken)
+	if leaseValue = strings.TrimSpace(leaseValue); leaseValue != "" {
+		req.Header.Set("X-Generation-Lease", leaseValue)
+	}
+	return c.doJSON(req, dest)
+}
+
+func (c *Client) GetGenerationExecution(ctx context.Context, id string) (*domain.GenerationRun, error) {
+	path := "/api/v1/agent-policy/generation-executions/" + url.PathEscape(id)
+	var out struct {
+		Code    int                  `json:"code"`
+		Data    domain.GenerationRun `json:"data"`
+		Message string               `json:"message"`
+	}
+	if err := c.getInternalJSON(ctx, path, &out); err != nil {
+		return nil, err
+	}
+	if out.Code != 1 {
+		return nil, fmt.Errorf("get generation execution: %s", out.Message)
+	}
+	return &out.Data, nil
+}
+
+func (c *Client) ListGenerationExecutions(ctx context.Context, kind domain.RunKind, limit int) ([]*domain.GenerationRun, error) {
+	path := fmt.Sprintf("/api/v1/agent-policy/generation-executions?kind=%s&limit=%d", url.QueryEscape(string(kind)), limit)
+	var out struct {
+		Code int `json:"code"`
+		Data struct {
+			Runs []*domain.GenerationRun `json:"runs"`
+		} `json:"data"`
+		Message string `json:"message"`
+	}
+	if err := c.getInternalJSON(ctx, path, &out); err != nil {
+		return nil, err
+	}
+	if out.Code != 1 {
+		return nil, fmt.Errorf("list generation executions: %s", out.Message)
+	}
+	return out.Data.Runs, nil
+}
+
+func (c *Client) SaveGenerationCheckpoint(ctx context.Context, id string, state []byte) error {
+	path := "/api/v1/agent-policy/generation-checkpoints/" + url.PathEscape(id)
+	var out struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := c.putInternalJSON(ctx, path, map[string]string{"state": base64.StdEncoding.EncodeToString(state)}, &out); err != nil {
+		return err
+	}
+	if out.Code != 1 {
+		return fmt.Errorf("save generation checkpoint: %s", out.Message)
+	}
+	return nil
+}
+
+func (c *Client) GetGenerationCheckpoint(ctx context.Context, id string) ([]byte, bool, error) {
+	path := "/api/v1/agent-policy/generation-checkpoints/" + url.PathEscape(id)
+	var out struct {
+		Code int `json:"code"`
+		Data struct {
+			State string `json:"state"`
+		} `json:"data"`
+		Message string `json:"message"`
+	}
+	if err := c.getInternalJSON(ctx, path, &out); err != nil {
+		if strings.Contains(err.Error(), "status 404") {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	if out.Code != 1 {
+		return nil, false, nil
+	}
+	state, err := base64.StdEncoding.DecodeString(out.Data.State)
+	if err != nil {
+		return nil, false, fmt.Errorf("decode generation checkpoint: %w", err)
+	}
+	return state, true, nil
+}
+
+type GenerationLease struct {
+	RunID string `json:"runId"`
+	Owner string `json:"owner"`
+	Token int64  `json:"token"`
+	Value string `json:"value"`
+}
+
+func (c *Client) AcquireGenerationLease(ctx context.Context, id, owner string, ttlSeconds int) (*GenerationLease, bool, error) {
+	path := "/api/v1/agent-policy/generation-executions/" + url.PathEscape(id) + "/lease"
+	var out struct {
+		Code int `json:"code"`
+		Data struct {
+			Acquired bool             `json:"acquired"`
+			Lease    *GenerationLease `json:"lease"`
+		} `json:"data"`
+		Message string `json:"message"`
+	}
+	if err := c.postInternalJSON(ctx, path, map[string]any{"owner": owner, "ttlSeconds": ttlSeconds}, &out); err != nil {
+		return nil, false, err
+	}
+	if out.Code != 1 {
+		return nil, false, fmt.Errorf("acquire generation lease: %s", out.Message)
+	}
+	return out.Data.Lease, out.Data.Acquired, nil
+}
+
+func (c *Client) RenewGenerationLease(ctx context.Context, id, value string, ttlSeconds int) (bool, error) {
+	path := "/api/v1/agent-policy/generation-executions/" + url.PathEscape(id) + "/lease"
+	var out struct {
+		Code int `json:"code"`
+		Data struct {
+			Renewed bool `json:"renewed"`
+		} `json:"data"`
+		Message string `json:"message"`
+	}
+	if err := c.putInternalJSON(ctx, path, map[string]any{"value": value, "ttlSeconds": ttlSeconds}, &out); err != nil {
+		return false, err
+	}
+	if out.Code != 1 {
+		return false, fmt.Errorf("renew generation lease: %s", out.Message)
+	}
+	return out.Data.Renewed, nil
+}
+
+func (c *Client) ReleaseGenerationLease(ctx context.Context, id, value string) error {
+	path := "/api/v1/agent-policy/generation-executions/" + url.PathEscape(id) + "/lease"
+	var out struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := c.deleteInternalJSON(ctx, path, map[string]string{"value": value}, &out); err != nil {
+		return err
+	}
+	if out.Code != 1 {
+		return fmt.Errorf("release generation lease: %s", out.Message)
+	}
+	return nil
+}
 
 // AgentTokenJTIStatus 查询 grapery agent-policy API 的 jti 状态。
 func (c *Client) AgentTokenJTIStatus(ctx context.Context, jti string) (string, error) {
@@ -95,9 +267,9 @@ func (c *Client) GenerateFragmentPanelForUser(ctx context.Context, userID string
 		IncludeGenerationTrace: req.IncludeGenerationTrace,
 	}
 	var out struct {
-		Code int                         `json:"code"`
-		Data GenerateFragmentPanelResponse `json:"data"`
-		Message string `json:"message"`
+		Code    int                           `json:"code"`
+		Data    GenerateFragmentPanelResponse `json:"data"`
+		Message string                        `json:"message"`
 	}
 	if err := c.postJSON(ctx, "/api/v1/agent-policy/fragment-panels/generate", body, &out); err != nil {
 		return nil, err
@@ -272,6 +444,51 @@ func (c *Client) postJSON(ctx context.Context, path string, body interface{}, de
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	return c.doJSON(req, dest)
+}
+
+func (c *Client) getInternalJSON(ctx context.Context, path string, dest interface{}) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Internal-Api-Key", c.authToken)
+	return c.doJSON(req, dest)
+}
+
+func (c *Client) putInternalJSON(ctx context.Context, path string, body interface{}, dest interface{}) error {
+	b, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL+path, strings.NewReader(string(b)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Api-Key", c.authToken)
+	return c.doJSON(req, dest)
+}
+
+func (c *Client) postInternalJSON(ctx context.Context, path string, body interface{}, dest interface{}) error {
+	return c.internalJSON(ctx, http.MethodPost, path, body, dest)
+}
+
+func (c *Client) deleteInternalJSON(ctx context.Context, path string, body interface{}, dest interface{}) error {
+	return c.internalJSON(ctx, http.MethodDelete, path, body, dest)
+}
+
+func (c *Client) internalJSON(ctx context.Context, method, path string, body interface{}, dest interface{}) error {
+	b, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, strings.NewReader(string(b)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Api-Key", c.authToken)
 	return c.doJSON(req, dest)
 }
 

@@ -13,13 +13,17 @@ import (
 
 func (s *Service) StartStoryboard(ctx context.Context, in domain.StoryboardGenerateInput) (*domain.GenerationRun, error) {
 	input := map[string]any{
-		"storyId":    in.StoryID,
-		"rawInput":   in.RawInput,
-		"sceneCount": in.SceneCount,
+		"clientRequestId": in.ClientRequestID,
+		"storyId":         in.StoryID,
+		"rawInput":        in.RawInput,
+		"sceneCount":      in.SceneCount,
 	}
 	run, err := s.store.CreateRun(ctx, domain.RunKindStoryboard, domain.AgentStoryboardDirector, in.RawInput, input)
 	if err != nil {
 		return nil, err
+	}
+	if run.Reused {
+		return run, nil
 	}
 	go s.executeStoryboard(context.Background(), run.ID, in)
 	return run, nil
@@ -84,8 +88,9 @@ func (s *Service) executeStoryboard(ctx context.Context, runID string, in domain
 	lastStepKey := ""
 
 	if storyboardShouldPoll(in) {
-		timeout := time.Duration(defaultInt(in.PollTimeoutSec, 300)) * time.Second
+		timeout := generationPollTimeout(in.PollTimeoutSec)
 		deadline := time.Now().Add(timeout)
+		completed := false
 		for time.Now().Before(deadline) {
 			prog, err := s.client.GetGenerationProgress(ctx, sb.ID)
 			if err == nil && prog != nil {
@@ -106,10 +111,15 @@ func (s *Service) executeStoryboard(ctx context.Context, runID string, in domain
 				output["progress"] = prog.ProgressPercent
 				output["currentStep"] = prog.StepKey
 				if !prog.IsGenerating && !prog.HasPendingTasks {
+					completed = true
 					break
 				}
 			}
 			time.Sleep(3 * time.Second)
+		}
+		if !completed {
+			_ = s.finishRun(ctx, runID, domain.RunStatusFailed, output, content, 0, "storyboard generation poll timeout")
+			return
 		}
 	}
 
@@ -138,8 +148,9 @@ func (s *Service) executeStoryboard(ctx context.Context, runID string, in domain
 		}
 		// Final poll after images kickoff.
 		if storyboardShouldPoll(in) {
-			timeout := time.Duration(defaultInt(in.PollTimeoutSec, 300)) * time.Second
+			timeout := generationPollTimeout(in.PollTimeoutSec)
 			deadline := time.Now().Add(timeout)
+			completed := false
 			for time.Now().Before(deadline) {
 				prog, err := s.client.GetGenerationProgress(ctx, sb.ID)
 				if err == nil && prog != nil {
@@ -152,10 +163,15 @@ func (s *Service) executeStoryboard(ctx context.Context, runID string, in domain
 					output["progress"] = prog.ProgressPercent
 					output["currentStep"] = prog.StepKey
 					if !prog.IsGenerating && !prog.HasPendingTasks {
+						completed = true
 						break
 					}
 				}
 				time.Sleep(3 * time.Second)
+			}
+			if !completed {
+				_ = s.finishRun(ctx, runID, domain.RunStatusFailed, output, content, 0, "storyboard image generation poll timeout")
+				return
 			}
 		}
 		s.appendStoryboardStepAudit(ctx, runID, "consistency_audit", domain.StepSucceeded)

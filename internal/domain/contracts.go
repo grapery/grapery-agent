@@ -42,6 +42,7 @@ type FragmentReferenceSlot struct {
 
 // FragmentPanelGenerateInput mirrors grapery reference-image panel fragment (FragmentPanelCreator).
 type FragmentPanelGenerateInput struct {
+	ClientRequestID        string `json:"clientRequestId,omitempty"`
 	UserInput              string `json:"userInput"`
 	ReferenceImageURL      string `json:"referenceImageUrl"`
 	Style                  string `json:"style,omitempty"`
@@ -59,16 +60,18 @@ type FragmentPanelGenerateInput struct {
 
 // StoryGenerateInput mirrors grapery AI story generation.
 type StoryGenerateInput struct {
-	Prompt      string   `json:"prompt"`
-	Context     string   `json:"context,omitempty"`
-	Characters  []string `json:"characters,omitempty"`
-	Style       string   `json:"style,omitempty"`
-	Length      string   `json:"length,omitempty"`
-	Temperature float64  `json:"temperature,omitempty"`
+	ClientRequestID string   `json:"clientRequestId,omitempty"`
+	Prompt          string   `json:"prompt"`
+	Context         string   `json:"context,omitempty"`
+	Characters      []string `json:"characters,omitempty"`
+	Style           string   `json:"style,omitempty"`
+	Length          string   `json:"length,omitempty"`
+	Temperature     float64  `json:"temperature,omitempty"`
 }
 
 // StoryboardGenerateInput drives storyboard creation pipeline (StoryboardDirector).
 type StoryboardGenerateInput struct {
+	ClientRequestID      string   `json:"clientRequestId,omitempty"`
 	StoryID              string   `json:"storyId"`
 	Title                string   `json:"title,omitempty"`
 	RawInput             string   `json:"rawInput"`
@@ -88,6 +91,7 @@ type StoryboardGenerateInput struct {
 
 // CharacterGenerateInput drives attribute gen + optional create + portrait (CharacterDesigner).
 type CharacterGenerateInput struct {
+	ClientRequestID            string `json:"clientRequestId,omitempty"`
 	StoryID                    string `json:"storyId"`
 	Prompt                     string `json:"prompt"`
 	Name                       string `json:"name,omitempty"`
@@ -104,6 +108,7 @@ type CharacterGenerateInput struct {
 
 // BranchExploreInput requests N parallel continuations from a parent storyboard.
 type BranchExploreInput struct {
+	ClientRequestID    string   `json:"clientRequestId,omitempty"`
 	ParentStoryboardID string   `json:"parentStoryboardId"`
 	SeedPrompt         string   `json:"seedPrompt,omitempty"`
 	BranchCount        int      `json:"branchCount,omitempty"`

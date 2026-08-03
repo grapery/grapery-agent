@@ -12,10 +12,13 @@ import (
 )
 
 func (s *Service) StartCharacter(ctx context.Context, in domain.CharacterGenerateInput) (*domain.GenerationRun, error) {
-	input := map[string]any{"storyId": in.StoryID, "prompt": in.Prompt, "name": in.Name}
+	input := map[string]any{"clientRequestId": in.ClientRequestID, "storyId": in.StoryID, "prompt": in.Prompt, "name": in.Name}
 	run, err := s.store.CreateRun(ctx, domain.RunKindCharacter, domain.AgentCharacterDesigner, in.Prompt, input)
 	if err != nil {
 		return nil, err
+	}
+	if run.Reused {
+		return run, nil
 	}
 	go s.executeCharacter(context.Background(), run.ID, in)
 	return run, nil
@@ -74,7 +77,7 @@ func (s *Service) executeCharacterAsyncTask(ctx context.Context, runID string, i
 		r.ContentIDs = content
 	})
 
-	deadline := time.Now().Add(10 * time.Minute)
+	deadline := time.Now().Add(generationPollTimeout(0))
 	var final *grapery_client.CharacterGenTask
 	for time.Now().Before(deadline) {
 		task, pollErr := s.client.GetCharacterGenTask(ctx, taskID)

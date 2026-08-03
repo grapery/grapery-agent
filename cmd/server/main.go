@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/cloudwego/eino/adk"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/agents"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/config"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/generation"
@@ -48,9 +49,17 @@ func main() {
 	}
 
 	// 5. 创建 CheckPoint Store 与 Generation Run Store
-	checkpoint := http.NewInMemoryCheckPointStore()
-	memStore := runstore.NewMemoryStore()
-	runStore := runstore.NewAuditSyncStore(memStore, client, cfg.AgentAuth.AuditSyncEnabled && cfg.Grapery.APIKey != "")
+	var checkpoint = adk.CheckPointStore(http.NewInMemoryCheckPointStore())
+	var runStore runstore.Store = runstore.NewMemoryStore()
+	if cfg.Grapery.APIKey != "" {
+		checkpoint = http.NewGraperyCheckPointStore(client)
+		runStore = runstore.NewGraperyStore(client)
+	} else {
+		if cfg.AgentAuth.DurableRuntimeRequired {
+			log.Fatal("GRAPERY_API_KEY is required when DURABLE_RUNTIME_REQUIRED is enabled")
+		}
+		log.Printf("WARNING: GRAPERY_API_KEY is empty; generation runs and checkpoints are not durable")
+	}
 	genSvc := generation.NewService(client, runStore, cfg.Eino.TextProvider, cfg.Eino.TextModel, cfg.AgentAuth.ExecFragmentPanelEnabled)
 	genHandler := http.NewGenerationHandler(genSvc, runStore, cfg.Artifact.ExportDir, cfg.AgentAuth)
 
