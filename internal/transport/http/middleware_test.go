@@ -28,7 +28,7 @@ func TestExpectedScopeForPath(t *testing.T) {
 		t.Fatalf("sync resume scope got %q %q %v", agent, op, ok)
 	}
 	agent, op, ok = expectedScopeForPath("POST", "/api/v1/agent/creation/sessions/cs_1/messages/stream")
-	if !ok || agent != "fragment" || op != "generate" {
+	if !ok || agent != "" || op != "generate" {
 		t.Fatalf("creation scope got %q %q %v", agent, op, ok)
 	}
 }
@@ -44,5 +44,12 @@ func TestScopeMatches(t *testing.T) {
 	legacy := &agentauth.Claims{Agent: "fragment-panel", Operation: "chat"}
 	if !scopeMatches(legacy, "fragment-panel", "chat") {
 		t.Fatal("legacy agent/op should match")
+	}
+	storyboard := &agentauth.Claims{Scope: "agent:storyboard:generate"}
+	if !scopeMatches(storyboard, "", "generate") {
+		t.Fatal("shared creation endpoint should accept storyboard generate operation")
+	}
+	if scopeMatches(storyboard, "", "chat") {
+		t.Fatal("shared creation endpoint must still enforce operation")
 	}
 }

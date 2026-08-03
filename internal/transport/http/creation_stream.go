@@ -19,6 +19,13 @@ func (h *GenerationHandler) createCreationSession(c *gin.Context) {
 		return
 	}
 	target := normalizeCreationTarget(req.TargetType, req.Context.TargetType)
+	if target == "" {
+		target = "fragment"
+	}
+	if !creationTargetScopeMatches(c, target) {
+		abortUnauthorized(c, "token scope does not match creation target")
+		return
+	}
 	surface := firstNonEmpty(req.Surface, req.Context.Surface)
 	if surface == "" {
 		surface = target + "_create"
@@ -64,6 +71,10 @@ func (h *GenerationHandler) streamCreationMessage(c *gin.Context) {
 	target := normalizeCreationTarget(req.Context.TargetType, "")
 	if target == "" {
 		target = "fragment"
+	}
+	if !creationTargetScopeMatches(c, target) {
+		abortUnauthorized(c, "token scope does not match creation target")
+		return
 	}
 	writeEvent("accepted", gin.H{
 		"event":      "accepted",

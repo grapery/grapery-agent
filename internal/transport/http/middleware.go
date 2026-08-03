@@ -110,7 +110,10 @@ func expectedScopeForPath(method, path string) (agent, operation string, enforce
 	path = strings.TrimSuffix(path, "/")
 	switch {
 	case method == http.MethodPost && strings.HasPrefix(path, "/api/v1/agent/creation/"):
-		return "fragment", "generate", true
+		// Creation is a shared endpoint for fragment, storyboard, story and
+		// branch generation. The middleware validates the operation here; the
+		// handler validates the concrete target after decoding the request body.
+		return "", "generate", true
 	case strings.HasSuffix(path, "/chat") || strings.Contains(path, "/chat/"):
 		parts := strings.Split(strings.TrimPrefix(path, "/api/v1/agent/"), "/")
 		if len(parts) > 0 && parts[0] != "" {
@@ -166,11 +169,27 @@ func scopeMatches(claims *agentauth.Claims, agent, operation string) bool {
 	if claims == nil {
 		return false
 	}
+	if agent == "" {
+		if claims.Scope != "" {
+			parts := strings.Split(claims.Scope, ":")
+			return len(parts) == 3 && strings.EqualFold(parts[0], "agent") && strings.EqualFold(parts[2], operation)
+		}
+		return strings.EqualFold(claims.Operation, operation)
+	}
 	if claims.Scope != "" {
 		want := "agent:" + agent + ":" + operation
 		return strings.EqualFold(claims.Scope, want)
 	}
 	return strings.EqualFold(claims.Agent, agent) && strings.EqualFold(claims.Operation, operation)
+}
+
+func creationTargetScopeMatches(c *gin.Context, target string) bool {
+	claims, ok := agentauth.ClaimsFromContext(c.Request.Context())
+	if !ok {
+		// Authentication may be disabled in local/development environments.
+		return true
+	}
+	return scopeMatches(claims, normalizeCreationTarget(target, ""), "generate")
 }
 
 func abortUnauthorized(c *gin.Context, msg string) {
