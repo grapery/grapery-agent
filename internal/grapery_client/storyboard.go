@@ -65,6 +65,7 @@ type GenerateSceneImageRequest struct {
 type GenerateAllImagesRequest struct {
 	RegenerateAll bool   `json:"regenerateAll,omitempty"`
 	StoryStyleID  string `json:"storyStyleId,omitempty"`
+	AspectRatio   string `json:"aspectRatio,omitempty"`
 }
 
 type StoryboardVideoRequest struct {
@@ -109,17 +110,25 @@ type StoryboardWorkflowStageRequest struct {
 	UserDirective       string `json:"userDirective,omitempty"`
 	SceneCount          int    `json:"sceneCount,omitempty"`
 	ComicStyle          string `json:"comicStyle,omitempty"`
+	Language            string `json:"language,omitempty"`
+}
+
+type GenerationPipelineStep struct {
+	Phase        string `json:"phase"`
+	Status       string `json:"status"`
+	ErrorMessage string `json:"errorMessage,omitempty"`
 }
 
 type GenerationProgressResponse struct {
-	StoryboardID          string `json:"storyboardId"`
-	WorkflowStatus        string `json:"workflowStatus"`
-	CurrentStep           int    `json:"currentStep"`
-	TotalTokens           int    `json:"totalTokens"`
-	IsGenerating          bool   `json:"isGenerating"`
-	HasPendingTasks       bool   `json:"hasPendingTasks"`
-	GenerationMessage     string `json:"generationMessage"`
-	SuggestedResumeAction string `json:"suggestedResumeAction,omitempty"`
+	StoryboardID          string                   `json:"storyboardId"`
+	WorkflowStatus        string                   `json:"workflowStatus"`
+	CurrentStep           int                      `json:"currentStep"`
+	TotalTokens           int                      `json:"totalTokens"`
+	IsGenerating          bool                     `json:"isGenerating"`
+	HasPendingTasks       bool                     `json:"hasPendingTasks"`
+	GenerationMessage     string                   `json:"generationMessage"`
+	SuggestedResumeAction string                   `json:"suggestedResumeAction,omitempty"`
+	PipelineSteps         []GenerationPipelineStep `json:"pipelineSteps,omitempty"`
 	// Fine-grained fields for conversational timeline (additive).
 	StepKey         string `json:"stepKey,omitempty"`
 	MessageKey      string `json:"messageKey,omitempty"`
@@ -133,6 +142,7 @@ type AnalyzeStoryboardRequest struct {
 	ParentStoryboardID      string `json:"parentStoryboardId,omitempty"`
 	SceneCount              int    `json:"sceneCount,omitempty"`
 	Style                   string `json:"style,omitempty"`
+	AspectRatio             string `json:"aspectRatio,omitempty"`
 	Language                string `json:"language,omitempty"`
 	TargetDraftStoryboardID string `json:"targetDraftStoryboardId,omitempty"`
 	UseComicPagePipeline    *bool  `json:"useComicPagePipeline,omitempty"`
@@ -141,21 +151,38 @@ type AnalyzeStoryboardRequest struct {
 type AnalyzeStoryboardResponse struct {
 	AssistantMessage    string                         `json:"assistantMessage"`
 	IntentType          string                         `json:"intentType,omitempty"`
+	EditPlan            CreativeEditPlan               `json:"editPlan"`
 	GenerationIntent    StoryboardGenerationIntent     `json:"generationIntent"`
 	CharacterCandidates []StoryboardCharacterCandidate `json:"characterCandidates,omitempty"`
 	RecommendedOptions  StoryboardRecommendedOptions   `json:"recommendedOptions"`
+	FrameworkAlignment  *StoryboardFrameworkAlignment  `json:"frameworkAlignment,omitempty"`
 }
 
 type StoryboardGenerationIntent struct {
 	UserInput             string   `json:"userInput"`
 	SceneCount            int      `json:"sceneCount"`
 	Style                 string   `json:"style,omitempty"`
+	AspectRatio           string   `json:"aspectRatio,omitempty"`
 	Language              string   `json:"language,omitempty"`
 	StoryID               string   `json:"storyId,omitempty"`
 	ParentStoryboardID    string   `json:"parentStoryboardId,omitempty"`
 	CharacterIDs          []string `json:"characterIds,omitempty"`
+	SceneIDs              []string `json:"sceneIds,omitempty"`
 	UseComicPagePipeline  bool     `json:"useComicPagePipeline,omitempty"`
 	TargetDraftStoryboard string   `json:"targetDraftStoryboardId,omitempty"`
+}
+
+type StoryboardFrameworkAlignment struct {
+	Status                string   `json:"status"`
+	StoryTitle            string   `json:"storyTitle,omitempty"`
+	StoryGenre            string   `json:"storyGenre,omitempty"`
+	StoryPremise          string   `json:"storyPremise,omitempty"`
+	ParentStoryboardTitle string   `json:"parentStoryboardTitle,omitempty"`
+	ParentEnding          string   `json:"parentEnding,omitempty"`
+	InheritedFacts        []string `json:"inheritedFacts,omitempty"`
+	Warnings              []string `json:"warnings,omitempty"`
+	RequiresConfirmation  bool     `json:"requiresConfirmation,omitempty"`
+	Blocking              bool     `json:"blocking,omitempty"`
 }
 
 type StoryboardCharacterCandidate struct {
@@ -288,6 +315,10 @@ func (c *Client) GetGenerationProgress(ctx context.Context, storyboardID string)
 		return nil, err
 	}
 	return &resp, nil
+}
+
+func (c *Client) CancelStoryboardGeneration(ctx context.Context, storyboardID string) error {
+	return c.post(ctx, "/api/v1/storyboards/"+storyboardID+"/cancel-generation", nil, nil)
 }
 
 func (c *Client) AnalyzeStoryboard(ctx context.Context, req AnalyzeStoryboardRequest) (*AnalyzeStoryboardResponse, error) {

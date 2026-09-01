@@ -46,6 +46,7 @@ type FragmentPanelGenerateInput struct {
 	UserInput              string `json:"userInput"`
 	ReferenceImageURL      string `json:"referenceImageUrl"`
 	Style                  string `json:"style,omitempty"`
+	Language               string `json:"language,omitempty"`
 	PanelCount             int    `json:"panelCount,omitempty"`
 	Visibility             string `json:"visibility,omitempty"`
 	Topic                  string `json:"topic,omitempty"`
@@ -80,6 +81,7 @@ type StoryboardGenerateInput struct {
 	Style                string   `json:"style,omitempty"`
 	ComicStyle           string   `json:"comicStyle,omitempty"`
 	AspectRatio          string   `json:"aspectRatio,omitempty"`
+	Language             string   `json:"language,omitempty"`
 	ParentStoryboardID   string   `json:"parentStoryboardId,omitempty"`
 	DraftStoryboardID    string   `json:"draftStoryboardId,omitempty"`
 	UseComicPagePipeline bool     `json:"useComicPagePipeline,omitempty"`

@@ -10,7 +10,7 @@ const FragmentDomainKnowledge = `━━━━━━━━━━━━━━━�
 2. visualBible（视觉圣经）：styleBible（画法/线稿/色调/光影）、characters（角色锚点，含 immutableTraits/negativeTraits）、props（道具锚点）、locations（场景锚点）
    - **visualBible.characters[].name 必填**：与正文/用户称呼一致；禁止「角色一」「无名氏」；下游故事角色物化依赖稳定 name
 3. content（故事正文）
-4. scenes（分镜格）：每格含 sceneDesc（中文画面描述）、imagePrompt（英文 8 层视觉指令）、referenceKeys、entityBindings、comicTexts
+4. scenes（分镜格）：每格含 sceneDesc（请求指定语言的叙事描述）、imagePrompt（英文可执行视觉指令）、referenceKeys、entityBindings、comicTexts（唯一允许绘入的文字）
 
 【元素提取质量标准（好坏对比）】
 

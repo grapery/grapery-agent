@@ -37,6 +37,8 @@ type generationLeaseProvider interface {
 
 func (s *Service) newWorkflowActivityRegistry() *workflowruntime.ActivityRegistry {
 	registry := workflowruntime.NewActivityRegistry()
+	_ = registry.Register("legacy.fragment.generate", s.executeLegacyFragmentActivity)
+	_ = registry.Register("legacy.storyboard.branch", s.executeLegacyStoryboardBranchActivity)
 	_ = registry.Register("legacy.storyboard.generate", s.executeLegacyStoryboardActivity)
 	_ = registry.Register("storyboard.ensure_draft", s.executeEnsureStoryboardDraftActivity)
 	_ = registry.Register("storyboard.generate_bible_plan", s.executeGenerateStoryboardBiblePlanActivity)
@@ -47,18 +49,69 @@ func (s *Service) newWorkflowActivityRegistry() *workflowruntime.ActivityRegistr
 	return registry
 }
 
+func (s *Service) executeLegacyFragmentActivity(ctx context.Context, input map[string]any, _ map[string]any) (map[string]any, error) {
+	payload, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
+	}
+	var fragmentInput domain.FragmentGenerateInput
+	if err := json.Unmarshal(payload, &fragmentInput); err != nil {
+		return nil, err
+	}
+	if fragmentInput.ClientMessageID == "" {
+		fragmentInput.ClientMessageID, _ = input["clientRequestId"].(string)
+	}
+	child, err := s.StartFragment(ctx, fragmentInput)
+	if err != nil {
+		return nil, err
+	}
+	if parentID, ok := runstore.RunIDFromContext(ctx); ok {
+		_ = s.store.UpdateRun(ctx, child.ID, func(run *domain.GenerationRun) { run.ParentRunID = parentID })
+	}
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+	for {
+		current, ok := s.store.GetRun(ctx, child.ID)
+		if !ok {
+			return nil, fmt.Errorf("fragment child run disappeared: %s", child.ID)
+		}
+		s.syncWorkflowChildRun(ctx, current)
+		switch current.Status {
+		case domain.RunStatusSucceeded:
+			out := cloneWorkflowInput(current.Output)
+			out["childRunId"] = current.ID
+			return out, nil
+		case domain.RunStatusFailed:
+			return nil, errors.New(current.Error)
+		case domain.RunStatusCancelled:
+			return nil, errors.New("fragment child run cancelled")
+		}
+		if parentID, ok := runstore.RunIDFromContext(ctx); ok {
+			if parent, exists := s.store.GetRun(ctx, parentID); exists && parent.Status == domain.RunStatusCancelled {
+				_ = s.CancelRun(ctx, child.ID)
+				return nil, errors.New("workflow cancelled")
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
 func (s *Service) StartWorkflow(ctx context.Context, in domain.WorkflowStartInput) (*domain.GenerationRun, error) {
 	if strings.TrimSpace(in.Surface) == "" || strings.TrimSpace(in.Action) == "" {
 		return nil, errors.New("workflow surface and action are required")
 	}
-	entries, err := s.client.ListWorkflowCatalog(ctx, in.Surface, in.Action, in.TenantID)
+	resolution, err := s.client.ResolveWorkflow(ctx, in.Surface, in.Action, in.TenantID, in.Input)
 	if err != nil {
 		return nil, err
 	}
-	if len(entries) == 0 {
+	if resolution == nil || strings.TrimSpace(resolution.Entry.Release.ID) == "" {
 		return nil, fmt.Errorf("no active workflow binding for %s/%s", in.Surface, in.Action)
 	}
-	release := &entries[0].Release
+	release := &resolution.Entry.Release
 	if requested := strings.TrimSpace(in.ReleaseID); requested != "" && requested != release.ID {
 		return nil, fmt.Errorf("workflow release %s is not active for %s/%s", requested, in.Surface, in.Action)
 	}
@@ -77,6 +130,15 @@ func (s *Service) StartWorkflow(ctx context.Context, in domain.WorkflowStartInpu
 	input["workflowSurface"] = in.Surface
 	input["workflowAction"] = in.Action
 	input["workflowManagedStoryboardStages"] = workflowManagesStoryboardStages(release.Definition)
+	input["workflowSelection"] = map[string]any{
+		"bindingId":           resolution.Entry.Binding.ID,
+		"routerVersion":       resolution.RouterVersion,
+		"profile":             resolution.Profile,
+		"routeReason":         resolution.RouteReason,
+		"confidence":          resolution.Confidence,
+		"fallback":            resolution.Fallback,
+		"candidateReleaseIds": append([]string(nil), resolution.CandidateIDs...),
+	}
 	run, err := s.store.CreateRun(ctx, domain.RunKindWorkflow, domain.AgentWorkflowRuntime, release.Name, input)
 	if err != nil {
 		return nil, err
@@ -346,6 +408,7 @@ func (s *Service) executeLegacyStoryboardActivity(ctx context.Context, input map
 		if !ok {
 			return nil, fmt.Errorf("storyboard child run disappeared: %s", child.ID)
 		}
+		s.syncWorkflowChildRun(ctx, current)
 		switch current.Status {
 		case domain.RunStatusSucceeded:
 			out := cloneWorkflowInput(current.Output)
@@ -368,6 +431,75 @@ func (s *Service) executeLegacyStoryboardActivity(ctx context.Context, input map
 		case <-ticker.C:
 		}
 	}
+}
+
+func (s *Service) executeLegacyStoryboardBranchActivity(ctx context.Context, input map[string]any, _ map[string]any) (map[string]any, error) {
+	payload, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
+	}
+	var branchInput domain.BranchExploreInput
+	if err := json.Unmarshal(payload, &branchInput); err != nil {
+		return nil, err
+	}
+	if branchInput.ClientRequestID == "" {
+		branchInput.ClientRequestID, _ = input["clientRequestId"].(string)
+	}
+	child, err := s.StartBranchBatch(ctx, branchInput)
+	if err != nil {
+		return nil, err
+	}
+	if parentID, ok := runstore.RunIDFromContext(ctx); ok {
+		_ = s.store.UpdateRun(ctx, child.ID, func(run *domain.GenerationRun) { run.ParentRunID = parentID })
+	}
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+	for {
+		current, ok := s.store.GetRun(ctx, child.ID)
+		if !ok {
+			return nil, fmt.Errorf("storyboard branch child run disappeared: %s", child.ID)
+		}
+		s.syncWorkflowChildRun(ctx, current)
+		switch current.Status {
+		case domain.RunStatusSucceeded:
+			out := cloneWorkflowInput(current.Output)
+			out["childRunId"] = current.ID
+			return out, nil
+		case domain.RunStatusFailed:
+			return nil, errors.New(current.Error)
+		case domain.RunStatusCancelled:
+			return nil, errors.New("storyboard branch child run cancelled")
+		}
+		if parentID, ok := runstore.RunIDFromContext(ctx); ok {
+			if parent, exists := s.store.GetRun(ctx, parentID); exists && parent.Status == domain.RunStatusCancelled {
+				_ = s.CancelRun(ctx, child.ID)
+				return nil, errors.New("workflow cancelled")
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (s *Service) syncWorkflowChildRun(ctx context.Context, child *domain.GenerationRun) {
+	parentID, ok := runstore.RunIDFromContext(ctx)
+	if !ok || child == nil {
+		return
+	}
+	_ = s.store.UpdateRun(ctx, parentID, func(parent *domain.GenerationRun) {
+		parent.ContentIDs = child.ContentIDs
+		if len(child.Output) > 0 {
+			if parent.Output == nil {
+				parent.Output = map[string]any{}
+			}
+			for key, value := range child.Output {
+				parent.Output[key] = value
+			}
+		}
+	})
 }
 
 func (s *Service) resolvePromptSnapshots(ctx context.Context, bundle map[string]string) (map[string]domain.PromptTemplateVersion, error) {

@@ -5,12 +5,12 @@ const StoryboardDomainKnowledge = `━━━━━━━━━━━━━━━
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 【故事板的核心产出】
-1. content（故事正文）：中文，建议不超过 420 个 Unicode 字符，用画面感文字而非剧情概要
+1. content（故事正文）：使用请求指定的内容语言，建议不超过 420 个 Unicode 字符，用画面感文字而非剧情概要
 2. scenes（场景列表）：每个场景包含：
-   - title/description：中文画面描述（100-220 字，要像"闭上眼睛就能看到的画面"）
+   - title/description：使用请求指定的内容语言（100-220 Unicode 字符，要像"闭上眼睛就能看到的画面"）
    - location/timeOfDay/mood：空间、时间、氛围
    - imagePrompt：英文视觉指令，需覆盖 artStyle/subject/environment/composition/lighting/colorPalette/mood/extra details
-   - comicTexts：漫画文字（narration/dialogue/thought/sfx，每条不超过 12 个汉字）
+   - comicTexts：唯一允许绘入的漫画文字（narration/dialogue/thought/sfx；CJK 每条不超过 12 字符，英文不超过 32 字符）
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 两阶段生成管线（Bible-Beats → Scenes）
@@ -82,7 +82,7 @@ Phase 2 — Scene Writing：
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 - layoutIntent：简短英文 snake_case，如 comic_single_panel、split_screen_two_beat、diagonal_motion、detail_insert
-- compositionPlan：中文简洁布局计划：分镜格/区域、gutter、阅读顺序、气泡安全空间、焦点流向
+- compositionPlan：使用请求指定的内容语言简洁描述布局：分镜格/区域、gutter、阅读顺序、文字安全空间、焦点流向
 - shotType：英文 shot type，如 close_up、medium_shot、wide_shot、dutch_angle、overhead
 - visualHierarchy：主视觉、次视觉、背景信息优先级
 - 这些字段是"文本阶段的前置漫画规划"，后续图片阶段会直接消费：不得留空、不得所有场景重复同一值
@@ -101,7 +101,7 @@ imagePrompt 写法（与碎片碎片一致）
 (7) mood — 复合情绪
 (8) extra details — 微粒/反光/景深/材质
 
-必须包含角色三视图作为身份权威参考，但不要复制 turnaround 的站姿。当 comicTexts 存在时，描述 balloon layout、tail direction、font treatment。
+必须包含角色三视图作为身份权威参考，但不要复制 turnaround 的站姿。comicTexts 是唯一文字来源；存在时描述 exact supplied glyphs、balloon layout、tail direction、font treatment；为空时明确禁止可读文字及空气泡/空旁白框。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 工具使用策略

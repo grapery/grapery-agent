@@ -21,8 +21,13 @@ func (s *Service) StartFragment(ctx context.Context, in domain.FragmentGenerateI
 		"targetDraftFragmentId": in.TargetDraftFragmentID,
 		"replaceImageIndex":     in.ReplaceImageIndex,
 		"clientMessageId":       in.ClientMessageID,
+		"referenceImages":       append([]string(nil), in.ReferenceImages...),
+		"referenceSlots":        in.ReferenceSlots,
+		"language":              in.Language,
+		"aspectRatio":           in.AspectRatio,
+		"length":                in.Length,
 	}
-	run, err := s.store.CreateRun(ctx, domain.RunKindFragment, domain.AgentFragmentCreator, in.UserInput, input)
+	run, err := s.store.CreateRun(ctx, domain.RunKindFragment, domain.AgentFragmentComicDirector, in.UserInput, input)
 	if err != nil {
 		return nil, err
 	}
@@ -119,6 +124,10 @@ done:
 		output["imageUrls"] = final.Result.ImageUrls
 		output["aspectRatio"] = final.Result.AspectRatio
 		output["storyElements"] = final.Result.StoryElements
+		if final.Result.ComicDocument != nil {
+			output["comicDocument"] = final.Result.ComicDocument
+			output["directorReview"] = reviewFragmentComicDocument(final.Result.ComicDocument)
+		}
 		output["expectedImageCount"] = final.Result.ExpectedImageCount
 		if len(final.Result.ImageSlots) > 0 {
 			output["imageSlots"] = final.Result.ImageSlots
@@ -153,6 +162,8 @@ func (s *Service) updateFragmentRunProgress(ctx context.Context, runID string, s
 		r.Output["progress"] = status.Progress
 		r.Output["currentStep"] = status.CurrentStep
 		r.Output["messageKey"] = status.MessageKey
+		r.Phase = fragmentDirectorPhase(status.CurrentStep)
+		r.Progress = int(status.Progress)
 		copyFragmentStatusOutput(r.Output, status)
 		if status.Result != nil {
 			r.Output["partialResult"] = status.Result
@@ -160,9 +171,35 @@ func (s *Service) updateFragmentRunProgress(ctx context.Context, runID string, s
 	})
 }
 
+func fragmentDirectorPhase(currentStep string) string {
+	switch currentStep {
+	case "extracting_elements":
+		return "understanding_inputs"
+	case "expanding_scenes":
+		return "developing_story"
+	case "planning_comic_pages":
+		return "directing_pages"
+	case "generating_reference_assets":
+		return "locking_visual_identity"
+	case "generating_images":
+		return "rendering_pages"
+	case "checking_consistency", "repairing_consistency":
+		return "reviewing_and_repairing"
+	case "completed":
+		return "ready_for_editing"
+	default:
+		return currentStep
+	}
+}
+
 func copyFragmentStatusOutput(output map[string]any, status *grapery_client.FragmentTaskStatus) {
 	if status == nil {
 		return
+	}
+	if status.Result != nil && len(status.Result.ComicDocument) > 0 {
+		// App recovery reads the same document key as the final output. Keeping
+		// it only under partialResult hid lettering until the run completed.
+		output["comicDocument"] = status.Result.ComicDocument
 	}
 	if status.Stage != "" {
 		output["stage"] = status.Stage

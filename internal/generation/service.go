@@ -62,8 +62,19 @@ func (s *Service) CancelRun(ctx context.Context, runID string) error {
 	if s.store == nil {
 		return fmt.Errorf("run store unavailable")
 	}
+	run, ok := s.store.GetRun(ctx, runID)
+	if !ok {
+		return fmt.Errorf("run not found: %s", runID)
+	}
 	if err := s.store.CancelRun(ctx, runID); err != nil {
 		return err
+	}
+	// Keep the local cancellation authoritative, then stop the business task on
+	// a best-effort basis so provider work does not continue unnecessarily.
+	if run.ContentIDs.StoryboardID != "" {
+		_ = s.client.CancelStoryboardGeneration(ctx, run.ContentIDs.StoryboardID)
+	} else if run.ContentIDs.TaskID != "" && run.Kind == domain.RunKindFragment {
+		_ = s.client.CancelFragmentTask(ctx, run.ContentIDs.TaskID)
 	}
 	s.settleQuota(ctx, domain.RunStatusCancelled, 0)
 	return nil

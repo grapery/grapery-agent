@@ -82,3 +82,17 @@ func TestStoryboardWorkflowProgressBoundaries(t *testing.T) {
 		t.Fatal("idle content_ready storyboard should start images")
 	}
 }
+
+func TestStoryboardPipelineFailureUsesStructuredImageError(t *testing.T) {
+	progress := &grapery_client.GenerationProgressResponse{PipelineSteps: []grapery_client.GenerationPipelineStep{
+		{Phase: "content", Status: "completed"},
+		{Phase: "images", Status: "failed", ErrorMessage: "2 格配图失败"},
+	}}
+	if got := storyboardPipelineFailure(progress); got != "2 格配图失败" {
+		t.Fatalf("unexpected pipeline failure: %q", got)
+	}
+	progress.PipelineSteps[1].Status = "completed"
+	if got := storyboardPipelineFailure(progress); got != "" {
+		t.Fatalf("completed pipeline must not fail: %q", got)
+	}
+}

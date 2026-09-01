@@ -248,6 +248,7 @@ type policyPanelGenerateRequest struct {
 	UserInput              string `json:"userInput"`
 	ReferenceImageURL      string `json:"referenceImageUrl"`
 	Style                  string `json:"style,omitempty"`
+	Language               string `json:"language,omitempty"`
 	PanelCount             int    `json:"panelCount,omitempty"`
 	Visibility             string `json:"visibility,omitempty"`
 	Topic                  string `json:"topic,omitempty"`
@@ -265,6 +266,7 @@ func (c *Client) GenerateFragmentPanelForUser(ctx context.Context, userID string
 		UserInput:              req.UserInput,
 		ReferenceImageURL:      req.ReferenceImageURL,
 		Style:                  req.Style,
+		Language:               req.Language,
 		PanelCount:             req.PanelCount,
 		Visibility:             req.Visibility,
 		Topic:                  req.Topic,

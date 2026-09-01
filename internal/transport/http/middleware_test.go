@@ -31,6 +31,10 @@ func TestExpectedScopeForPath(t *testing.T) {
 	if !ok || agent != "" || op != "generate" {
 		t.Fatalf("creation scope got %q %q %v", agent, op, ok)
 	}
+	agent, op, ok = expectedScopeForPath("POST", "/api/v1/generation/workflows")
+	if !ok || agent != "" || op != "generate" {
+		t.Fatalf("workflow scope got %q %q %v", agent, op, ok)
+	}
 }
 
 func TestScopeMatches(t *testing.T) {

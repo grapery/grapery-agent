@@ -11,6 +11,7 @@ type GenerateFragmentPanelRequest struct {
 	UserInput              string `json:"userInput"`
 	ReferenceImageURL      string `json:"referenceImageUrl"`
 	Style                  string `json:"style,omitempty"`
+	Language               string `json:"language,omitempty"`
 	PanelCount             int    `json:"panelCount,omitempty"`
 	Visibility             string `json:"visibility,omitempty"`
 	Topic                  string `json:"topic,omitempty"`
@@ -30,16 +31,16 @@ type GenerateFragmentPanelResponse struct {
 }
 
 type FragmentPanelTaskStatus struct {
-	TaskID          string                   `json:"taskId"`
-	Status          string                   `json:"status"`
-	Progress        float64                  `json:"progress"`
-	CurrentStep     string                   `json:"currentStep"`
-	DraftFragmentID string                   `json:"draftFragmentId,omitempty"`
-	Error           string                   `json:"error,omitempty"`
-	CombinedContent string                   `json:"combinedContent,omitempty"`
-	Panels          []FragmentPanelResult    `json:"panels,omitempty"`
-	VisualBible     any                      `json:"visualBible,omitempty"`
-	TokensUsed      int                      `json:"tokensUsed,omitempty"`
+	TaskID          string                `json:"taskId"`
+	Status          string                `json:"status"`
+	Progress        float64               `json:"progress"`
+	CurrentStep     string                `json:"currentStep"`
+	DraftFragmentID string                `json:"draftFragmentId,omitempty"`
+	Error           string                `json:"error,omitempty"`
+	CombinedContent string                `json:"combinedContent,omitempty"`
+	Panels          []FragmentPanelResult `json:"panels,omitempty"`
+	VisualBible     any                   `json:"visualBible,omitempty"`
+	TokensUsed      int                   `json:"tokensUsed,omitempty"`
 }
 
 type FragmentPanelResult struct {

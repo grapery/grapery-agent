@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/artifact"
@@ -48,7 +49,7 @@ func (h *GenerationHandler) RegisterRoutes(r *gin.Engine, auth agentAuthDeps, cl
 		g.POST("/storyboards", h.startStoryboard)
 		g.POST("/characters", h.startCharacter)
 		g.POST("/branches", h.startBranches)
-		g.POST("/workflows", h.startWorkflow)
+		g.POST("/workflows", requireAgentClaims(auth), h.startWorkflow)
 
 		g.GET("/runs/:id", h.getRun)
 		g.GET("/runs", h.listRuns)
@@ -185,12 +186,29 @@ func (h *GenerationHandler) startWorkflow(c *gin.Context) {
 		h.fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !workflowScopeMatches(c, in.Surface) {
+		abortUnauthorized(c, "agent token cannot start this workflow surface")
+		return
+	}
 	run, err := h.gen.StartWorkflow(c.Request.Context(), in)
 	if err != nil {
 		h.fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	h.ok(c, run)
+}
+
+func workflowScopeMatches(c *gin.Context, surface string) bool {
+	target := strings.TrimSpace(strings.ToLower(surface))
+	if idx := strings.LastIndex(target, "."); idx >= 0 {
+		target = target[idx+1:]
+	}
+	switch target {
+	case "fragment", "storyboard", "story", "character", "branch":
+		return creationTargetScopeMatches(c, target)
+	default:
+		return false
+	}
 }
 
 func (h *GenerationHandler) getRun(c *gin.Context) {

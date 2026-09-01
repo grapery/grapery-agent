@@ -127,7 +127,7 @@ func (s *Service) executeStoryboard(ctx context.Context, runID string, in domain
 		s.appendStoryboardStepAudit(ctx, runID, "image", domain.StepStarted)
 		if in.UseComicPagePipeline {
 			_, err = tracedClientCall(ctx, s.store, "generate_all_comic_pages", map[string]any{"storyboardId": sb.ID}, func(c context.Context) (map[string]any, error) {
-				resp, err := s.client.GenerateAllComicPages(c, sb.ID, grapery_client.GenerateAllComicPagesRequest{})
+				resp, err := s.client.GenerateAllComicPages(c, sb.ID, grapery_client.GenerateAllComicPagesRequest{PageAspectRatio: in.AspectRatio})
 				if err != nil {
 					return nil, err
 				}
@@ -135,7 +135,7 @@ func (s *Service) executeStoryboard(ctx context.Context, runID string, in domain
 			})
 		} else {
 			_, err = tracedClientCall(ctx, s.store, "generate_all_scene_images", map[string]any{"storyboardId": sb.ID}, func(c context.Context) (map[string]any, error) {
-				if err := s.client.GenerateAllSceneImages(c, sb.ID, grapery_client.GenerateAllImagesRequest{}); err != nil {
+				if err := s.client.GenerateAllSceneImages(c, sb.ID, grapery_client.GenerateAllImagesRequest{AspectRatio: in.AspectRatio}); err != nil {
 					return nil, err
 				}
 				return map[string]any{"success": true}, nil

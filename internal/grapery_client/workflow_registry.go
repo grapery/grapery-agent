@@ -62,3 +62,22 @@ func (c *Client) ListWorkflowCatalog(ctx context.Context, surface, action, tenan
 	}
 	return out.Data.Items, nil
 }
+
+func (c *Client) ResolveWorkflow(ctx context.Context, surface, action, tenantID string, input map[string]any) (*domain.WorkflowResolution, error) {
+	var out struct {
+		Code    int                       `json:"code"`
+		Data    domain.WorkflowResolution `json:"data"`
+		Message string                    `json:"message"`
+	}
+	body := map[string]any{"surface": surface, "action": action, "input": input}
+	if tenantID != "" {
+		body["tenantId"] = tenantID
+	}
+	if err := c.postInternalJSON(ctx, "/api/v1/agent-policy/workflow-resolve", body, &out); err != nil {
+		return nil, err
+	}
+	if out.Code != 1 {
+		return nil, fmt.Errorf("resolve workflow: %s", out.Message)
+	}
+	return &out.Data, nil
+}

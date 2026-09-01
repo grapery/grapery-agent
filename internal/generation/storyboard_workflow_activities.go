@@ -93,7 +93,7 @@ func (s *Service) executeStoryboardTextStage(ctx context.Context, input map[stri
 		request = grapery_client.StoryboardWorkflowStageRequest{
 			ClientRequestID: in.ClientRequestID, RegenerateStructure: in.RegenerateStructure,
 			UserDirective: strings.TrimSpace(in.RawInput), SceneCount: in.SceneCount,
-			ComicStyle: firstNonEmptyStoryboardStyle(in.ComicStyle, in.Style),
+			ComicStyle: firstNonEmptyStoryboardStyle(in.ComicStyle, in.Style), Language: strings.TrimSpace(in.Language),
 		}
 	}
 	result, err := s.client.ExecuteStoryboardWorkflowStage(ctx, storyboardID, stage, request)
@@ -147,10 +147,10 @@ func (s *Service) executeEnsureStoryboardImagesActivity(ctx context.Context, inp
 	}
 	if storyboardShouldStartImages(progress) {
 		if in.UseComicPagePipeline {
-			if _, err := s.client.GenerateAllComicPages(ctx, storyboardID, grapery_client.GenerateAllComicPagesRequest{}); err != nil {
+			if _, err := s.client.GenerateAllComicPages(ctx, storyboardID, grapery_client.GenerateAllComicPagesRequest{PageAspectRatio: in.AspectRatio}); err != nil {
 				return nil, err
 			}
-		} else if err := s.client.GenerateAllSceneImages(ctx, storyboardID, grapery_client.GenerateAllImagesRequest{}); err != nil {
+		} else if err := s.client.GenerateAllSceneImages(ctx, storyboardID, grapery_client.GenerateAllImagesRequest{AspectRatio: in.AspectRatio}); err != nil {
 			return nil, err
 		}
 	}
@@ -166,6 +166,13 @@ func (s *Service) executeEnsureStoryboardImagesActivity(ctx context.Context, inp
 	})
 	if err != nil {
 		return nil, err
+	}
+	finalProgress, err := s.client.GetGenerationProgress(ctx, storyboardID)
+	if err != nil {
+		return nil, fmt.Errorf("verify storyboard image result: %w", err)
+	}
+	if failure := storyboardPipelineFailure(finalProgress); failure != "" {
+		return nil, fmt.Errorf("storyboard image generation failed: %s", failure)
 	}
 	output["imagesRequested"] = true
 	if runID, ok := runstore.RunIDFromContext(ctx); ok {
@@ -209,6 +216,7 @@ func (s *Service) waitForStoryboardProgress(ctx context.Context, storyboardID st
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
+	consecutivePollErrors := 0
 	for {
 		if runID, ok := runstore.RunIDFromContext(ctx); ok {
 			if run, exists := s.store.GetRun(ctx, runID); exists && run.Status == domain.RunStatusCancelled {
@@ -217,11 +225,20 @@ func (s *Service) waitForStoryboardProgress(ctx context.Context, storyboardID st
 		}
 		progress, err := s.client.GetGenerationProgress(ctx, storyboardID)
 		if err == nil && progress != nil {
+			consecutivePollErrors = 0
 			if runID, ok := runstore.RunIDFromContext(ctx); ok {
 				s.updateStoryboardRunProgress(ctx, runID, progress)
 			}
 			if done(progress) {
 				return storyboardProgressOutput(storyboardID, progress), nil
+			}
+		} else {
+			if err == nil {
+				err = errors.New("empty generation progress response")
+			}
+			consecutivePollErrors++
+			if consecutivePollErrors >= 3 {
+				return nil, fmt.Errorf("poll storyboard generation progress: %w", err)
 			}
 		}
 		if time.Now().After(deadline) {
@@ -268,5 +285,26 @@ func storyboardProgressOutput(storyboardID string, progress *grapery_client.Gene
 		"generationMessage": progress.GenerationMessage, "stepKey": progress.StepKey,
 		"messageKey": progress.MessageKey, "stage": progress.Stage,
 		"progress": progress.ProgressPercent, "currentStep": progress.StepKey,
+		"pipelineSteps": progress.PipelineSteps,
 	}
+}
+
+func storyboardPipelineFailure(progress *grapery_client.GenerationProgressResponse) string {
+	if progress == nil {
+		return ""
+	}
+	for _, step := range progress.PipelineSteps {
+		if !strings.EqualFold(strings.TrimSpace(step.Status), "failed") {
+			continue
+		}
+		if msg := strings.TrimSpace(step.ErrorMessage); msg != "" {
+			return msg
+		}
+		phase := strings.TrimSpace(step.Phase)
+		if phase == "" {
+			phase = "generation"
+		}
+		return phase + " failed"
+	}
+	return ""
 }

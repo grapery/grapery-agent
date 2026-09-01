@@ -31,13 +31,14 @@ const (
 type AgentVersion string
 
 const (
-	AgentFragmentCreator      AgentVersion = "fragment_creator:v1"
-	AgentFragmentPanelCreator AgentVersion = "fragment_panel_creator:v1"
-	AgentCharacterDesigner    AgentVersion = "character_designer:v1"
-	AgentStoryboardDirector   AgentVersion = "storyboard_director:v1"
-	AgentBranchExplorer       AgentVersion = "branch_explorer:v1"
-	AgentStoryGenerator       AgentVersion = "story_generator:v1"
-	AgentWorkflowRuntime      AgentVersion = "workflow_runtime:v1"
+	AgentFragmentCreator       AgentVersion = "fragment_creator:v1"
+	AgentFragmentComicDirector AgentVersion = "fragment_comic_director:v2"
+	AgentFragmentPanelCreator  AgentVersion = "fragment_panel_creator:v1"
+	AgentCharacterDesigner     AgentVersion = "character_designer:v1"
+	AgentStoryboardDirector    AgentVersion = "storyboard_director:v1"
+	AgentBranchExplorer        AgentVersion = "branch_explorer:v1"
+	AgentStoryGenerator        AgentVersion = "story_generator:v1"
+	AgentWorkflowRuntime       AgentVersion = "workflow_runtime:v1"
 )
 
 // GenerationRun is the unified traceable unit for all agent-orchestrated generation.

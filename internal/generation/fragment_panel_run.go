@@ -44,6 +44,7 @@ func (s *Service) executeFragmentPanel(ctx context.Context, runID string, in dom
 		UserInput:              in.UserInput,
 		ReferenceImageURL:      in.ReferenceImageURL,
 		Style:                  in.Style,
+		Language:               in.Language,
 		PanelCount:             in.PanelCount,
 		Visibility:             defaultString(in.Visibility, "private"),
 		Topic:                  in.Topic,

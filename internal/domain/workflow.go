@@ -56,15 +56,28 @@ type PromptTemplateVersion struct {
 }
 
 type WorkflowBinding struct {
-	ID        string `json:"id"`
-	Surface   string `json:"surface"`
-	Action    string `json:"action"`
-	TenantID  string `json:"tenantId,omitempty"`
-	ReleaseID string `json:"releaseId"`
-	Enabled   bool   `json:"enabled"`
+	ID          string         `json:"id"`
+	Surface     string         `json:"surface"`
+	Action      string         `json:"action"`
+	TenantID    string         `json:"tenantId,omitempty"`
+	WorkflowKey string         `json:"workflowKey,omitempty"`
+	ReleaseID   string         `json:"releaseId"`
+	Priority    int            `json:"priority,omitempty"`
+	Enabled     bool           `json:"enabled"`
+	Conditions  map[string]any `json:"conditions,omitempty"`
 }
 
 type WorkflowCatalogEntry struct {
 	Binding WorkflowBinding `json:"binding"`
 	Release WorkflowRelease `json:"release"`
+}
+
+type WorkflowResolution struct {
+	Entry         WorkflowCatalogEntry `json:"entry"`
+	RouterVersion string               `json:"routerVersion"`
+	Profile       map[string]any       `json:"profile"`
+	RouteReason   string               `json:"routeReason"`
+	Confidence    float64              `json:"confidence"`
+	Fallback      bool                 `json:"fallback"`
+	CandidateIDs  []string             `json:"candidateReleaseIds,omitempty"`
 }

@@ -33,6 +33,7 @@ type CreationContext struct {
 	BranchID           string `json:"branchId,omitempty"`
 	ParentStoryID      string `json:"parentStoryId,omitempty"`
 	ParentStoryboardID string `json:"parentStoryboardId,omitempty"`
+	EditOperation      string `json:"editOperation,omitempty"`      // replace | append from an explicit UI action.
 	SelectedImageIndex int    `json:"selectedImageIndex,omitempty"` // 1-based for replace operations.
 }
 

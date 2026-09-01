@@ -11,9 +11,9 @@ const (
 
 // GraperyRef points to the authoritative prompt location in the grapery repo (read-only).
 type GraperyRef struct {
-	Path         string   // relative to monorepo root, e.g. grapery/internal/service/...
-	Symbol       string   // function or API entry
-	Version      string   // bump when agent summary is re-synced from grapery
+	Path         string // relative to monorepo root, e.g. grapery/internal/service/...
+	Symbol       string // function or API entry
+	Version      string // bump when agent summary is re-synced from grapery
 	Role         Role
 	AgentVersion string   // matches domain.AgentVersion when applicable
 	Summary      string   // what the agent block covers vs what grapery still owns
@@ -42,9 +42,9 @@ func Catalog() []GraperyRef {
 			},
 		},
 		{
-			Path:         "grapery/internal/service/fragment_panel_plan_prompts.go",
-			Symbol:       "buildFragmentPanelPlanPrompt",
-			Version:      "2026-06-11",
+			Path:         "grapery/internal/service/creative_prompt_contracts.go",
+			Symbol:       "buildFragmentPanelPlanUserPrompt",
+			Version:      "2026-08-21",
 			Role:         RoleOrchestration,
 			AgentVersion: "fragment_panel_creator:v1",
 			Summary:      "参考图多面板：panel plan JSON、visualBible、layout_intent/comic_texts；出图在 fragment_panel_generation_service",
@@ -52,8 +52,8 @@ func Catalog() []GraperyRef {
 				"runPanelImageBatchHuoshan 组图出图细节",
 			},
 			DriftAnchors: []string{
-				"参考图多模态视觉事实",
-				"visualBible 必须存在且包含 styleBible.artStyle",
+				"contractVersion",
+				"visualBible 只记录跨格必须稳定的可见事实",
 				"layout_intent",
 			},
 		},

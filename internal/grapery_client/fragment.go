@@ -33,14 +33,27 @@ type AnalyzeFragmentRequest struct {
 	ImageCount            int    `json:"imageCount,omitempty"`
 	Style                 string `json:"style,omitempty"`
 	TargetDraftFragmentID string `json:"targetDraftFragmentId,omitempty"`
+	EditOperation         string `json:"editOperation,omitempty"`
+	SelectedImageIndex    int    `json:"selectedImageIndex,omitempty"`
 }
 
 type AnalyzeFragmentResponse struct {
 	AssistantMessage   string                     `json:"assistantMessage"`
 	IntentType         string                     `json:"intentType,omitempty"`
+	EditPlan           CreativeEditPlan           `json:"editPlan"`
 	GenerationIntent   FragmentGenerationIntent   `json:"generationIntent"`
 	StoryElements      []FragmentReferenceSlot    `json:"storyElements"`
 	RecommendedOptions FragmentRecommendedOptions `json:"recommendedOptions"`
+}
+
+type CreativeEditPlan struct {
+	Operation                  string   `json:"operation"`
+	TargetIndexes              []int    `json:"targetIndexes,omitempty"`
+	RequestedChanges           []string `json:"requestedChanges,omitempty"`
+	Preserve                   []string `json:"preserve,omitempty"`
+	NeedsClarification         bool     `json:"needsClarification"`
+	ClarificationQuestion      string   `json:"clarificationQuestion,omitempty"`
+	EstimatedRegenerationCount int      `json:"estimatedRegenerationCount,omitempty"`
 }
 
 type FragmentGenerationIntent struct {
@@ -105,6 +118,7 @@ type FragmentTaskResult struct {
 	ImageSlots         []FragmentGenerationImageSlot    `json:"imageSlots,omitempty"`
 	ImageProgress      *FragmentGenerationImageProgress `json:"imageProgress,omitempty"`
 	StoryElements      []FragmentReferenceSlot          `json:"storyElements,omitempty"`
+	ComicDocument      map[string]any                   `json:"comicDocument,omitempty"`
 }
 
 type FragmentGenerationImageSlot struct {
