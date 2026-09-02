@@ -10,24 +10,30 @@ package domain
 
 // FragmentGenerateInput mirrors grapery text fragment generation (FragmentCreator).
 type FragmentGenerateInput struct {
-	UserInput              string                  `json:"userInput"`
-	ReferenceImages        []string                `json:"referenceImages,omitempty"`
-	ReferenceSlots         []FragmentReferenceSlot `json:"referenceSlots,omitempty"`
-	ImageCount             int                     `json:"imageCount,omitempty"`
-	Style                  string                  `json:"style,omitempty"`
-	Mood                   string                  `json:"mood,omitempty"`
-	Length                 string                  `json:"length,omitempty"`
-	Language               string                  `json:"language,omitempty"`
-	Visibility             string                  `json:"visibility,omitempty"`
-	AspectRatio            string                  `json:"aspectRatio,omitempty"`
-	ConsistencyLevel       string                  `json:"consistencyLevel,omitempty"`
-	TargetDraftFragmentID  string                  `json:"targetDraftFragmentId,omitempty"`
-	ReplaceImageIndex      int                     `json:"replaceImageIndex,omitempty"`
-	ClientMessageID        string                  `json:"clientMessageId,omitempty"`
-	EnableReferenceAssets  *bool                   `json:"enableReferenceAssets,omitempty"`
-	IncludeGenerationTrace bool                    `json:"includeGenerationTrace,omitempty"`
-	PollIntervalSec        int                     `json:"pollIntervalSec,omitempty"`
-	PollTimeoutSec         int                     `json:"pollTimeoutSec,omitempty"`
+	UserInput               string                  `json:"userInput"`
+	ReferenceImages         []string                `json:"referenceImages,omitempty"`
+	ReferenceSlots          []FragmentReferenceSlot `json:"referenceSlots,omitempty"`
+	ImageCount              int                     `json:"imageCount,omitempty"`
+	Style                   string                  `json:"style,omitempty"`
+	Mood                    string                  `json:"mood,omitempty"`
+	Length                  string                  `json:"length,omitempty"`
+	Language                string                  `json:"language,omitempty"`
+	Visibility              string                  `json:"visibility,omitempty"`
+	AspectRatio             string                  `json:"aspectRatio,omitempty"`
+	ConsistencyLevel        string                  `json:"consistencyLevel,omitempty"`
+	TargetDraftFragmentID   string                  `json:"targetDraftFragmentId,omitempty"`
+	ReplaceImageIndex       int                     `json:"replaceImageIndex,omitempty"`
+	ClientMessageID         string                  `json:"clientMessageId,omitempty"`
+	EnableReferenceAssets   *bool                   `json:"enableReferenceAssets,omitempty"`
+	IncludeGenerationTrace  bool                    `json:"includeGenerationTrace,omitempty"`
+	PollIntervalSec         int                     `json:"pollIntervalSec,omitempty"`
+	PollTimeoutSec          int                     `json:"pollTimeoutSec,omitempty"`
+	WorkflowReleaseID       string                  `json:"workflowReleaseId,omitempty"`
+	WorkflowSystemPrompt    string                  `json:"workflowSystemPrompt,omitempty"`
+	WorkflowUserPrompt      string                  `json:"workflowUserPrompt,omitempty"`
+	WorkflowModelConfig     map[string]any          `json:"workflowModelConfig,omitempty"`
+	WorkflowOutputSchema    map[string]any          `json:"workflowOutputSchema,omitempty"`
+	WorkflowPromptVersionID string                  `json:"workflowPromptVersionId,omitempty"`
 }
 
 type FragmentReferenceSlot struct {
@@ -83,6 +89,9 @@ type StoryboardGenerateInput struct {
 	AspectRatio          string   `json:"aspectRatio,omitempty"`
 	Language             string   `json:"language,omitempty"`
 	ParentStoryboardID   string   `json:"parentStoryboardId,omitempty"`
+	ChapterContent       string   `json:"chapterContent,omitempty"`
+	StoryContent         string   `json:"storyContent,omitempty"`
+	ParentEnding         string   `json:"parentEnding,omitempty"`
 	DraftStoryboardID    string   `json:"draftStoryboardId,omitempty"`
 	UseComicPagePipeline bool     `json:"useComicPagePipeline,omitempty"`
 	GenerateImages       bool     `json:"generateImages,omitempty"`
@@ -90,6 +99,7 @@ type StoryboardGenerateInput struct {
 	RegenerateStructure  bool     `json:"regenerateStructure,omitempty"`
 	PollTimeoutSec       int      `json:"pollTimeoutSec,omitempty"`
 	WorkflowReleaseID    string   `json:"workflowReleaseId,omitempty"`
+	WorkflowRunID        string   `json:"workflowRunId,omitempty"`
 }
 
 // CharacterGenerateInput drives attribute gen + optional create + portrait (CharacterDesigner).
@@ -114,11 +124,15 @@ type BranchExploreInput struct {
 	ClientRequestID    string   `json:"clientRequestId,omitempty"`
 	ParentStoryboardID string   `json:"parentStoryboardId"`
 	SeedPrompt         string   `json:"seedPrompt,omitempty"`
+	ChapterContent     string   `json:"chapterContent,omitempty"`
+	StoryContent       string   `json:"storyContent,omitempty"`
+	ParentEnding       string   `json:"parentEnding,omitempty"`
 	BranchCount        int      `json:"branchCount,omitempty"`
 	SceneCount         int      `json:"sceneCount,omitempty"`
 	Characters         []string `json:"characters,omitempty"`
 	Strategies         []string `json:"strategies,omitempty"`
 	ComicStyle         string   `json:"comicStyle,omitempty"`
+	WorkflowReleaseID  string   `json:"workflowReleaseId,omitempty"`
 }
 
 type WorkflowStartInput struct {

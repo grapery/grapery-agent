@@ -8,22 +8,29 @@ import (
 // ============ Fragment Generation ============
 
 type GenerateFragmentRequest struct {
-	UserInput              string                  `json:"userInput"`
-	ImageUrls              []string                `json:"imageUrls,omitempty"`
-	ReferenceSlots         []FragmentReferenceSlot `json:"referenceSlots,omitempty"`
-	ImageCount             int                     `json:"imageCount"`
-	Style                  string                  `json:"style"`
-	Mood                   string                  `json:"mood,omitempty"`
-	Length                 string                  `json:"length,omitempty"`
-	Language               string                  `json:"language"`
-	Visibility             string                  `json:"visibility"`
-	AspectRatio            string                  `json:"aspectRatio,omitempty"`
-	ConsistencyLevel       string                  `json:"consistencyLevel,omitempty"`
-	TargetDraftFragmentID  string                  `json:"targetDraftFragmentId,omitempty"`
-	ReplaceImageIndex      int                     `json:"replaceImageIndex,omitempty"`
-	ClientMessageID        string                  `json:"clientMessageId,omitempty"`
-	EnableReferenceAssets  *bool                   `json:"enableReferenceAssets,omitempty"`
-	IncludeGenerationTrace bool                    `json:"includeGenerationTrace,omitempty"`
+	UserInput               string                  `json:"userInput"`
+	ImageUrls               []string                `json:"imageUrls,omitempty"`
+	ReferenceSlots          []FragmentReferenceSlot `json:"referenceSlots,omitempty"`
+	ImageCount              int                     `json:"imageCount"`
+	Style                   string                  `json:"style"`
+	Mood                    string                  `json:"mood,omitempty"`
+	Length                  string                  `json:"length,omitempty"`
+	Language                string                  `json:"language"`
+	Visibility              string                  `json:"visibility"`
+	AspectRatio             string                  `json:"aspectRatio,omitempty"`
+	ConsistencyLevel        string                  `json:"consistencyLevel,omitempty"`
+	TargetDraftFragmentID   string                  `json:"targetDraftFragmentId,omitempty"`
+	ReplaceImageIndex       int                     `json:"replaceImageIndex,omitempty"`
+	ClientMessageID         string                  `json:"clientMessageId,omitempty"`
+	EnableReferenceAssets   *bool                   `json:"enableReferenceAssets,omitempty"`
+	IncludeGenerationTrace  bool                    `json:"includeGenerationTrace,omitempty"`
+	WorkflowReleaseID       string                  `json:"workflowReleaseId,omitempty"`
+	WorkflowRunID           string                  `json:"workflowRunId,omitempty"`
+	WorkflowSystemPrompt    string                  `json:"workflowSystemPrompt,omitempty"`
+	WorkflowUserPrompt      string                  `json:"workflowUserPrompt,omitempty"`
+	WorkflowModelConfig     map[string]any          `json:"workflowModelConfig,omitempty"`
+	WorkflowOutputSchema    map[string]any          `json:"workflowOutputSchema,omitempty"`
+	WorkflowPromptVersionID string                  `json:"workflowPromptVersionId,omitempty"`
 }
 
 type AnalyzeFragmentRequest struct {

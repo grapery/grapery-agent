@@ -1,12 +1,14 @@
 package generation
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/grapestree/fgrapery/grapery-agent/internal/domain"
@@ -49,7 +51,12 @@ func (s *Service) newWorkflowActivityRegistry() *workflowruntime.ActivityRegistr
 	return registry
 }
 
-func (s *Service) executeLegacyFragmentActivity(ctx context.Context, input map[string]any, _ map[string]any) (map[string]any, error) {
+func (s *Service) executeLegacyFragmentActivity(ctx context.Context, input map[string]any, config map[string]any) (map[string]any, error) {
+	input = applyWorkflowInputDefaults(input, config)
+	input, err := applyLegacyWorkflowPrompt(input, config, "userInput")
+	if err != nil {
+		return nil, err
+	}
 	payload, err := json.Marshal(input)
 	if err != nil {
 		return nil, err
@@ -80,6 +87,7 @@ func (s *Service) executeLegacyFragmentActivity(ctx context.Context, input map[s
 		case domain.RunStatusSucceeded:
 			out := cloneWorkflowInput(current.Output)
 			out["childRunId"] = current.ID
+			out["tokensUsed"] = current.TokensUsed
 			return out, nil
 		case domain.RunStatusFailed:
 			return nil, errors.New(current.Error)
@@ -104,6 +112,15 @@ func (s *Service) StartWorkflow(ctx context.Context, in domain.WorkflowStartInpu
 	if strings.TrimSpace(in.Surface) == "" || strings.TrimSpace(in.Action) == "" {
 		return nil, errors.New("workflow surface and action are required")
 	}
+	if existing := s.findWorkflowByClientRequest(ctx, in); existing != nil {
+		existing.Reused = true
+		return existing, nil
+	}
+	enrichedInput, err := s.enrichWorkflowRoutingInput(ctx, in.Input)
+	if err != nil {
+		return nil, err
+	}
+	in.Input = enrichedInput
 	resolution, err := s.client.ResolveWorkflow(ctx, in.Surface, in.Action, in.TenantID, in.Input)
 	if err != nil {
 		return nil, err
@@ -169,6 +186,44 @@ func (s *Service) StartWorkflow(ctx context.Context, in domain.WorkflowStartInpu
 	go s.executeWorkflow(execCtx, run.ID, compiled, state)
 	updated, _ := s.store.GetRun(ctx, run.ID)
 	return updated, nil
+}
+
+func (s *Service) enrichWorkflowRoutingInput(ctx context.Context, input map[string]any) (map[string]any, error) {
+	out := cloneWorkflowInput(input)
+	parentID := stringFromAny(out["parentStoryboardId"])
+	if parentID == "" {
+		return out, nil
+	}
+	parent, err := s.client.GetStoryboard(ctx, parentID)
+	if err != nil {
+		return nil, fmt.Errorf("load parent storyboard routing context: %w", err)
+	}
+	out["storyId"] = firstNonEmptyString(stringFromAny(out["storyId"]), parent.StoryID)
+	out["chapterContent"] = firstNonEmptyString(parent.Content, parent.ContinuationSummary, parent.RawInput)
+	out["parentEnding"] = firstNonEmptyString(parent.ContinuationSummary, parent.Content)
+	return out, nil
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func (s *Service) findWorkflowByClientRequest(ctx context.Context, in domain.WorkflowStartInput) *domain.GenerationRun {
+	requestID := strings.TrimSpace(in.ClientRequestID)
+	if requestID == "" {
+		return nil
+	}
+	run, ok := s.store.FindRunByClientRequest(ctx, domain.RunKindWorkflow, userIDFromContext(ctx), requestID)
+	if ok && stringFromAny(run.Input["workflowSurface"]) == strings.TrimSpace(in.Surface) &&
+		stringFromAny(run.Input["workflowAction"]) == strings.TrimSpace(in.Action) {
+		return run
+	}
+	return nil
 }
 
 func workflowManagesStoryboardStages(definition domain.WorkflowDefinition) bool {
@@ -240,11 +295,14 @@ func (s *Service) executeWorkflow(ctx context.Context, runID string, compiled *w
 		if run, ok := s.store.GetRun(finishCtx, runID); ok && run.Status == domain.RunStatusCancelled {
 			return
 		}
-		_ = s.finishRun(finishCtx, runID, domain.RunStatusFailed, nil, domain.ContentRef{}, 0, err.Error())
+		current, _ := s.store.GetRun(finishCtx, runID)
+		output, content, tokens := workflowCompletion(current, &workflowruntime.ExecutionResult{NodeOutputs: state.NodeOutputs}, compiled.Release.ID)
+		_ = s.finishRun(finishCtx, runID, domain.RunStatusFailed, output, content, tokens, err.Error())
 		return
 	}
-	output := map[string]any{"nodeOutputs": result.NodeOutputs, "workflowReleaseId": compiled.Release.ID}
-	_ = s.finishRun(finishCtx, runID, domain.RunStatusSucceeded, output, workflowContentRef(result), 0, "")
+	current, _ := s.store.GetRun(finishCtx, runID)
+	output, content, tokens := workflowCompletion(current, result, compiled.Release.ID)
+	_ = s.finishRun(finishCtx, runID, domain.RunStatusSucceeded, output, content, tokens, "")
 }
 
 // ResumeWorkflows recovers non-terminal workflow runs after a process restart.
@@ -374,7 +432,8 @@ func (s *Service) loadWorkflowCheckpoint(ctx context.Context, id string) (*workf
 	return &state, nil
 }
 
-func (s *Service) executeLegacyStoryboardActivity(ctx context.Context, input map[string]any, _ map[string]any) (map[string]any, error) {
+func (s *Service) executeLegacyStoryboardActivity(ctx context.Context, input map[string]any, config map[string]any) (map[string]any, error) {
+	input = applyWorkflowInputDefaults(input, config)
 	payload, err := json.Marshal(input)
 	if err != nil {
 		return nil, err
@@ -413,6 +472,7 @@ func (s *Service) executeLegacyStoryboardActivity(ctx context.Context, input map
 		case domain.RunStatusSucceeded:
 			out := cloneWorkflowInput(current.Output)
 			out["childRunId"] = current.ID
+			out["tokensUsed"] = current.TokensUsed
 			return out, nil
 		case domain.RunStatusFailed:
 			return nil, errors.New(current.Error)
@@ -433,7 +493,8 @@ func (s *Service) executeLegacyStoryboardActivity(ctx context.Context, input map
 	}
 }
 
-func (s *Service) executeLegacyStoryboardBranchActivity(ctx context.Context, input map[string]any, _ map[string]any) (map[string]any, error) {
+func (s *Service) executeLegacyStoryboardBranchActivity(ctx context.Context, input map[string]any, config map[string]any) (map[string]any, error) {
+	input = applyWorkflowInputDefaults(input, config)
 	payload, err := json.Marshal(input)
 	if err != nil {
 		return nil, err
@@ -450,7 +511,10 @@ func (s *Service) executeLegacyStoryboardBranchActivity(ctx context.Context, inp
 		return nil, err
 	}
 	if parentID, ok := runstore.RunIDFromContext(ctx); ok {
-		_ = s.store.UpdateRun(ctx, child.ID, func(run *domain.GenerationRun) { run.ParentRunID = parentID })
+		_ = s.store.UpdateRun(ctx, child.ID, func(run *domain.GenerationRun) {
+			run.ParentRunID = parentID
+			run.WorkflowReleaseID = branchInput.WorkflowReleaseID
+		})
 	}
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
@@ -464,6 +528,7 @@ func (s *Service) executeLegacyStoryboardBranchActivity(ctx context.Context, inp
 		case domain.RunStatusSucceeded:
 			out := cloneWorkflowInput(current.Output)
 			out["childRunId"] = current.ID
+			out["tokensUsed"] = current.TokensUsed
 			return out, nil
 		case domain.RunStatusFailed:
 			return nil, errors.New(current.Error)
@@ -490,7 +555,10 @@ func (s *Service) syncWorkflowChildRun(ctx context.Context, child *domain.Genera
 		return
 	}
 	_ = s.store.UpdateRun(ctx, parentID, func(parent *domain.GenerationRun) {
-		parent.ContentIDs = child.ContentIDs
+		mergeContentRef(&parent.ContentIDs, child.ContentIDs)
+		if child.TokensUsed > parent.TokensUsed {
+			parent.TokensUsed = child.TokensUsed
+		}
 		if len(child.Output) > 0 {
 			if parent.Output == nil {
 				parent.Output = map[string]any{}
@@ -581,17 +649,97 @@ func clonePromptSnapshots(source map[string]domain.PromptTemplateVersion) map[st
 	return out
 }
 
-func workflowContentRef(result *workflowruntime.ExecutionResult) domain.ContentRef {
+func workflowCompletion(current *domain.GenerationRun, result *workflowruntime.ExecutionResult, releaseID string) (map[string]any, domain.ContentRef, int) {
+	output := map[string]any{}
 	content := domain.ContentRef{}
-	for _, output := range result.NodeOutputs {
-		if value, ok := output["storyboardId"].(string); ok && content.StoryboardID == "" {
-			content.StoryboardID = value
-		}
-		if value, ok := output["storyId"].(string); ok && content.StoryID == "" {
-			content.StoryID = value
+	tokens := 0
+	if current != nil {
+		output = cloneWorkflowInput(current.Output)
+		content = current.ContentIDs
+		tokens = current.TokensUsed
+	}
+	output["nodeOutputs"] = result.NodeOutputs
+	output["workflowReleaseId"] = releaseID
+	nodeTokens := 0
+	for _, nodeOutput := range result.NodeOutputs {
+		mergeContentRef(&content, contentRefFromOutput(nodeOutput))
+		nodeTokens += intFromAny(nodeOutput["tokensUsed"])
+	}
+	if nodeTokens > 0 {
+		tokens = nodeTokens
+	}
+	return output, content, tokens
+}
+
+func contentRefFromOutput(output map[string]any) domain.ContentRef {
+	return domain.ContentRef{
+		FragmentID:   stringFromAny(output["fragmentId"], output["draftFragmentId"]),
+		StoryID:      stringFromAny(output["storyId"]),
+		StoryboardID: stringFromAny(output["storyboardId"], output["draftStoryboardId"]),
+		CharacterID:  stringFromAny(output["characterId"]),
+		TaskID:       stringFromAny(output["taskId"]),
+		BranchIDs:    stringsFromAny(output["branchStoryboardIds"]),
+	}
+}
+
+func mergeContentRef(target *domain.ContentRef, source domain.ContentRef) {
+	if target.FragmentID == "" {
+		target.FragmentID = source.FragmentID
+	}
+	if target.StoryID == "" {
+		target.StoryID = source.StoryID
+	}
+	if target.StoryboardID == "" {
+		target.StoryboardID = source.StoryboardID
+	}
+	if target.CharacterID == "" {
+		target.CharacterID = source.CharacterID
+	}
+	if target.TaskID == "" {
+		target.TaskID = source.TaskID
+	}
+	if len(target.BranchIDs) == 0 && len(source.BranchIDs) > 0 {
+		target.BranchIDs = append([]string(nil), source.BranchIDs...)
+	}
+}
+
+func stringFromAny(values ...any) string {
+	for _, value := range values {
+		if text, ok := value.(string); ok && strings.TrimSpace(text) != "" {
+			return strings.TrimSpace(text)
 		}
 	}
-	return content
+	return ""
+}
+
+func stringsFromAny(value any) []string {
+	switch values := value.(type) {
+	case []string:
+		return append([]string(nil), values...)
+	case []any:
+		out := make([]string, 0, len(values))
+		for _, value := range values {
+			if text := stringFromAny(value); text != "" {
+				out = append(out, text)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func intFromAny(value any) int {
+	switch number := value.(type) {
+	case int:
+		return number
+	case int64:
+		return int(number)
+	case float64:
+		return int(number)
+	default:
+		return 0
+	}
 }
 
 func cloneWorkflowInput(input map[string]any) map[string]any {
@@ -600,6 +748,100 @@ func cloneWorkflowInput(input map[string]any) map[string]any {
 		out[key] = value
 	}
 	return out
+}
+
+// applyWorkflowInputDefaults is the executable contract for operator node
+// configuration. A release may provide {"inputDefaults": {...}}; runtime input
+// always wins so a published workflow cannot silently override an explicit
+// user choice.
+func applyWorkflowInputDefaults(input, config map[string]any) map[string]any {
+	out := cloneWorkflowInput(input)
+	defaults, ok := config["inputDefaults"].(map[string]any)
+	if !ok {
+		return out
+	}
+	for key, value := range defaults {
+		if strings.TrimSpace(key) == "" || value == nil {
+			continue
+		}
+		if existing, found := out[key]; !found || workflowInputValueEmpty(existing) {
+			out[key] = value
+		}
+	}
+	return out
+}
+
+func workflowInputValueEmpty(value any) bool {
+	switch typed := value.(type) {
+	case nil:
+		return true
+	case string:
+		return strings.TrimSpace(typed) == ""
+	case float64:
+		return typed == 0
+	case int:
+		return typed == 0
+	case []any:
+		return len(typed) == 0
+	case []string:
+		return len(typed) == 0
+	default:
+		return false
+	}
+}
+
+func applyLegacyWorkflowPrompt(input, config map[string]any, targetKey string) (map[string]any, error) {
+	raw, found := config["promptTemplate"]
+	if !found {
+		return input, nil
+	}
+	payload, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("marshal workflow prompt template: %w", err)
+	}
+	var prompt domain.PromptTemplateVersion
+	if err := json.Unmarshal(payload, &prompt); err != nil {
+		return nil, fmt.Errorf("decode workflow prompt template: %w", err)
+	}
+	variables := cloneWorkflowInput(input)
+	legacyInput := stringFromAny(input[targetKey], input["userInput"], input["rawInput"], input["seedPrompt"])
+	variables["legacyUserPrompt"] = legacyInput
+	variables["userInput"] = legacyInput
+	variables["rawInput"] = legacyInput
+	variables["seedPrompt"] = legacyInput
+	systemText, err := renderWorkflowPromptPart(prompt.SystemTemplate, variables)
+	if err != nil {
+		return nil, fmt.Errorf("render workflow system prompt %s: %w", prompt.ID, err)
+	}
+	userText, err := renderWorkflowPromptPart(prompt.UserTemplate, variables)
+	if err != nil {
+		return nil, fmt.Errorf("render workflow user prompt %s: %w", prompt.ID, err)
+	}
+	if strings.TrimSpace(userText) == "" {
+		userText = legacyInput
+	}
+	out := cloneWorkflowInput(input)
+	out["workflowSystemPrompt"] = strings.TrimSpace(systemText)
+	out["workflowUserPrompt"] = strings.TrimSpace(userText)
+	out["workflowModelConfig"] = prompt.ModelConfig
+	out["workflowOutputSchema"] = prompt.OutputSchema
+	out["workflowPromptVersionId"] = prompt.ID
+	return out, nil
+}
+
+func renderWorkflowPromptPart(source string, variables map[string]any) (string, error) {
+	if strings.TrimSpace(source) == "" {
+		return "", nil
+	}
+	tmpl, err := template.New("workflow-prompt").Option("missingkey=error").Parse(source)
+	if err != nil {
+		return "", err
+	}
+	var rendered bytes.Buffer
+	if err := tmpl.Execute(&rendered, variables); err != nil {
+		return "", err
+	}
+	return rendered.String(), nil
 }
 
 func cloneStringMap(input map[string]string) map[string]string {

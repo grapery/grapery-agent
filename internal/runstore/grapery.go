@@ -106,6 +106,15 @@ func (s *GraperyStore) GetRun(ctx context.Context, id string) (*domain.Generatio
 	return cloneRun(run), true
 }
 
+func (s *GraperyStore) FindRunByClientRequest(ctx context.Context, kind domain.RunKind, userID, clientRequestID string) (*domain.GenerationRun, bool) {
+	run, err := s.client.FindGenerationExecutionByRequest(ctx, kind, userID, clientRequestID)
+	if err != nil || run == nil {
+		return s.inner.FindRunByClientRequest(ctx, kind, userID, clientRequestID)
+	}
+	s.cache(run)
+	return cloneRun(run), true
+}
+
 func (s *GraperyStore) UpdateRun(ctx context.Context, id string, fn func(*domain.GenerationRun)) error {
 	if latest, err := s.client.GetGenerationExecution(ctx, id); err == nil {
 		s.cache(latest)

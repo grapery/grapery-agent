@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/grapestree/fgrapery/grapery-agent/internal/agentauth"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/domain"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/grapery_client"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/prompt"
@@ -24,6 +25,7 @@ func (s *Service) StartBranchBatch(ctx context.Context, in domain.BranchExploreI
 		"parentStoryboardId": in.ParentStoryboardID,
 		"strategies":         strategies,
 		"seedPrompt":         in.SeedPrompt,
+		"workflowReleaseId":  in.WorkflowReleaseID,
 	}
 	intent := in.SeedPrompt
 	if intent == "" {
@@ -36,7 +38,22 @@ func (s *Service) StartBranchBatch(ctx context.Context, in domain.BranchExploreI
 	if run.Reused {
 		return run, nil
 	}
-	go s.executeBranchBatch(context.Background(), run.ID, in, strategies)
+	if in.WorkflowReleaseID != "" {
+		if err := s.store.UpdateRun(ctx, run.ID, func(current *domain.GenerationRun) {
+			current.WorkflowReleaseID = in.WorkflowReleaseID
+		}); err != nil {
+			return nil, err
+		}
+	}
+	execCtx := context.Background()
+	if claims, ok := agentauth.ClaimsFromContext(ctx); ok {
+		execCtx = agentauth.ContextWithClaims(execCtx, claims)
+	}
+	if token, ok := grapery_client.AuthTokenFromContext(ctx); ok {
+		execCtx = grapery_client.ContextWithAuthToken(execCtx, token)
+	}
+	execCtx = runstore.ContextWithRunID(execCtx, run.ID)
+	go s.executeBranchBatch(execCtx, run.ID, in, strategies)
 	return run, nil
 }
 
@@ -49,6 +66,7 @@ func (s *Service) executeBranchBatch(ctx context.Context, runID string, in domai
 		SeedPrompt:         in.SeedPrompt,
 		Candidates:         make([]domain.BranchCandidate, 0, len(strategies)),
 	}
+	totalTokens := 0
 
 	for i, strategy := range strategies {
 		rawInput := prompt.BuildBranchRawInput(in.SeedPrompt, strategy)
@@ -89,10 +107,12 @@ func (s *Service) executeBranchBatch(ctx context.Context, runID string, in domai
 			"strategy":           strategy,
 		}, func(c context.Context) (map[string]any, error) {
 			resp, err := s.client.ContinueStoryboard(c, in.ParentStoryboardID, grapery_client.ContinueStoryboardRequest{
-				RawInput:   rawInput,
-				SceneCount: defaultInt(in.SceneCount, 3),
-				Characters: in.Characters,
-				ComicStyle: in.ComicStyle,
+				RawInput:          rawInput,
+				SceneCount:        defaultInt(in.SceneCount, 3),
+				Characters:        in.Characters,
+				ComicStyle:        in.ComicStyle,
+				WorkflowReleaseID: in.WorkflowReleaseID,
+				WorkflowRunID:     runID,
 			})
 			if err != nil {
 				return nil, err
@@ -115,17 +135,19 @@ func (s *Service) executeBranchBatch(ctx context.Context, runID string, in domai
 			cand.StoryboardID = str(out["id"])
 			cand.StoryID = str(out["storyId"])
 			if childRun != nil {
+				tokens := int(num(out["tokens"]))
+				totalTokens += tokens
 				_ = s.finishRun(ctx, childRun.ID, domain.RunStatusSucceeded, out, domain.ContentRef{
 					StoryboardID: cand.StoryboardID,
 					StoryID:      cand.StoryID,
-				}, int(num(out["tokens"])), "")
+				}, tokens, "")
 			}
 		}
 		batch.Candidates = append(batch.Candidates, cand)
 	}
 
-	output := map[string]any{"candidateCount": len(batch.Candidates)}
-	_ = s.finishRun(ctx, runID, domain.RunStatusSucceeded, output, domain.ContentRef{}, 0, "")
+	output := map[string]any{"candidateCount": len(batch.Candidates), "tokensUsed": totalTokens}
+	_ = s.finishRun(ctx, runID, domain.RunStatusSucceeded, output, domain.ContentRef{}, totalTokens, "")
 	_ = s.store.UpdateRun(ctx, runID, func(r *domain.GenerationRun) {
 		r.Output["branchBatch"] = batch
 		ids := make([]string, 0, len(batch.Candidates))

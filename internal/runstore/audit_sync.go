@@ -32,6 +32,10 @@ func (s *AuditSyncStore) GetRun(ctx context.Context, id string) (*domain.Generat
 	return s.inner.GetRun(ctx, id)
 }
 
+func (s *AuditSyncStore) FindRunByClientRequest(ctx context.Context, kind domain.RunKind, userID, clientRequestID string) (*domain.GenerationRun, bool) {
+	return s.inner.FindRunByClientRequest(ctx, kind, userID, clientRequestID)
+}
+
 func (s *AuditSyncStore) UpdateRun(ctx context.Context, id string, fn func(*domain.GenerationRun)) error {
 	return s.inner.UpdateRun(ctx, id, fn)
 }

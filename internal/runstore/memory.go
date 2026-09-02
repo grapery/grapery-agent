@@ -16,6 +16,7 @@ const maxRuns = 5000
 type Store interface {
 	CreateRun(ctx context.Context, kind domain.RunKind, agent domain.AgentVersion, userIntent string, input map[string]any) (*domain.GenerationRun, error)
 	GetRun(ctx context.Context, id string) (*domain.GenerationRun, bool)
+	FindRunByClientRequest(ctx context.Context, kind domain.RunKind, userID, clientRequestID string) (*domain.GenerationRun, bool)
 	UpdateRun(ctx context.Context, id string, fn func(*domain.GenerationRun)) error
 	ListRuns(ctx context.Context, kind domain.RunKind, limit int) []*domain.GenerationRun
 	RecordToolCall(ctx context.Context, runID string, rec domain.ToolCallRecord) error
@@ -80,6 +81,18 @@ func (s *MemoryStore) GetRun(_ context.Context, id string) (*domain.GenerationRu
 		return nil, false
 	}
 	return cloneRun(r), true
+}
+
+func (s *MemoryStore) FindRunByClientRequest(_ context.Context, kind domain.RunKind, userID, clientRequestID string) (*domain.GenerationRun, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for i := len(s.runOrder) - 1; i >= 0; i-- {
+		run := s.runs[s.runOrder[i]]
+		if run.Kind == kind && run.UserID == userID && run.ClientRequestID == clientRequestID {
+			return cloneRun(run), true
+		}
+	}
+	return nil, false
 }
 
 func (s *MemoryStore) UpdateRun(_ context.Context, id string, fn func(*domain.GenerationRun)) error {

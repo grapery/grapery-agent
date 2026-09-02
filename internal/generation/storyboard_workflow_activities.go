@@ -13,7 +13,8 @@ import (
 	"github.com/grapestree/fgrapery/grapery-agent/internal/runstore"
 )
 
-func (s *Service) executeEnsureStoryboardDraftActivity(ctx context.Context, input map[string]any, _ map[string]any) (map[string]any, error) {
+func (s *Service) executeEnsureStoryboardDraftActivity(ctx context.Context, input map[string]any, config map[string]any) (map[string]any, error) {
+	input = applyWorkflowInputDefaults(input, config)
 	in, err := decodeStoryboardWorkflowInput(input)
 	if err != nil {
 		return nil, err
@@ -52,7 +53,8 @@ func (s *Service) executeEnsureStoryboardDraftActivity(ctx context.Context, inpu
 	}, nil
 }
 
-func (s *Service) executeAwaitStoryboardContentActivity(ctx context.Context, input map[string]any, _ map[string]any) (map[string]any, error) {
+func (s *Service) executeAwaitStoryboardContentActivity(ctx context.Context, input map[string]any, config map[string]any) (map[string]any, error) {
+	input = applyWorkflowInputDefaults(input, config)
 	in, err := decodeStoryboardWorkflowInput(input)
 	if err != nil {
 		return nil, err
@@ -64,15 +66,18 @@ func (s *Service) executeAwaitStoryboardContentActivity(ctx context.Context, inp
 	return s.waitForStoryboardProgress(ctx, storyboardID, generationPollTimeout(in.PollTimeoutSec), storyboardContentReady)
 }
 
-func (s *Service) executeGenerateStoryboardBiblePlanActivity(ctx context.Context, input map[string]any, _ map[string]any) (map[string]any, error) {
+func (s *Service) executeGenerateStoryboardBiblePlanActivity(ctx context.Context, input map[string]any, config map[string]any) (map[string]any, error) {
+	input = applyWorkflowInputDefaults(input, config)
 	return s.executeStoryboardTextStage(ctx, input, "bible_plan", "bible_plan")
 }
 
-func (s *Service) executeGenerateStoryboardScenePlanActivity(ctx context.Context, input map[string]any, _ map[string]any) (map[string]any, error) {
+func (s *Service) executeGenerateStoryboardScenePlanActivity(ctx context.Context, input map[string]any, config map[string]any) (map[string]any, error) {
+	input = applyWorkflowInputDefaults(input, config)
 	return s.executeStoryboardTextStage(ctx, input, "scene_plan", "scene_plan")
 }
 
-func (s *Service) executePersistStoryboardContentActivity(ctx context.Context, input map[string]any, _ map[string]any) (map[string]any, error) {
+func (s *Service) executePersistStoryboardContentActivity(ctx context.Context, input map[string]any, config map[string]any) (map[string]any, error) {
+	input = applyWorkflowInputDefaults(input, config)
 	return s.executeStoryboardTextStage(ctx, input, "persist_content", "consistency_audit")
 }
 
@@ -123,7 +128,8 @@ func generationRunIDFromWorkflowInput(input map[string]any) string {
 	return ""
 }
 
-func (s *Service) executeEnsureStoryboardImagesActivity(ctx context.Context, input map[string]any, _ map[string]any) (map[string]any, error) {
+func (s *Service) executeEnsureStoryboardImagesActivity(ctx context.Context, input map[string]any, config map[string]any) (map[string]any, error) {
+	input = applyWorkflowInputDefaults(input, config)
 	in, err := decodeStoryboardWorkflowInput(input)
 	if err != nil {
 		return nil, err

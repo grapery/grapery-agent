@@ -165,10 +165,7 @@ func (h *GenerationHandler) streamCreationFragment(c *gin.Context, req domain.Cr
 		"message": creationFragmentAssistantMessage(intent),
 	})
 
-	run, configured, err := h.startConfiguredCreationWorkflow(c, "voyager.fragment", "generate", req.ClientRequestID, intent)
-	if err == nil && !configured {
-		run, err = h.gen.StartFragment(c.Request.Context(), intent)
-	}
+	run, err := h.startConfiguredCreationWorkflow(c, "voyager.fragment", "generate", req.ClientRequestID, intent)
 	if err != nil {
 		writeEvent("failed", gin.H{"event": "failed", "message": err.Error(), "status": "failed"})
 		return
@@ -247,10 +244,7 @@ func (h *GenerationHandler) streamCreationStoryboard(c *gin.Context, req domain.
 		"event":   "assistant_message",
 		"message": "好的，我会把你的故事走向整理成完整故事板。",
 	})
-	run, configured, err := h.startConfiguredCreationWorkflow(c, "voyager.storyboard", "generate", req.ClientRequestID, in)
-	if err == nil && !configured {
-		run, err = h.gen.StartStoryboard(c.Request.Context(), in)
-	}
+	run, err := h.startConfiguredCreationWorkflow(c, "voyager.storyboard", "generate", req.ClientRequestID, in)
 	if err != nil {
 		writeEvent("failed", gin.H{"event": "failed", "message": err.Error(), "status": "failed"})
 		return
@@ -268,28 +262,24 @@ func (h *GenerationHandler) streamCreationStoryboard(c *gin.Context, req domain.
 	h.streamRunSSEWithPrefix(c, run.ID, "creation", writeEvent)
 }
 
-// startConfiguredCreationWorkflow makes the registry the primary path while
-// retaining the legacy generator only when a product surface has not been
-// configured yet. Invalid or non-matching configured bindings fail closed.
-func (h *GenerationHandler) startConfiguredCreationWorkflow(c *gin.Context, surface, action, clientRequestID string, input any) (*domain.GenerationRun, bool, error) {
+// startConfiguredCreationWorkflow is the only creation entry point. Missing or
+// paused bindings fail closed so an operator pause cannot silently reactivate
+// an unversioned legacy generator.
+func (h *GenerationHandler) startConfiguredCreationWorkflow(c *gin.Context, surface, action, clientRequestID string, input any) (*domain.GenerationRun, error) {
 	payload, err := json.Marshal(input)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	var workflowInput map[string]any
 	if err := json.Unmarshal(payload, &workflowInput); err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	run, err := h.gen.StartWorkflow(c.Request.Context(), domain.WorkflowStartInput{
+	return h.gen.StartWorkflow(c.Request.Context(), domain.WorkflowStartInput{
 		Surface:         surface,
 		Action:          action,
 		ClientRequestID: strings.TrimSpace(clientRequestID),
 		Input:           workflowInput,
 	})
-	if err != nil && strings.Contains(strings.ToLower(err.Error()), "no active workflow binding") {
-		return nil, false, nil
-	}
-	return run, true, err
 }
 
 func creationStoryboardIntent(req domain.CreationMessageRequest) domain.StoryboardGenerateInput {
@@ -379,10 +369,7 @@ func (h *GenerationHandler) streamCreationBranch(c *gin.Context, req domain.Crea
 		"event":   "assistant_message",
 		"message": "好的，我会从这个节点展开新的故事分支。",
 	})
-	run, configured, err := h.startConfiguredCreationWorkflow(c, "voyager.storyboard", "branch", req.ClientRequestID, in)
-	if err == nil && !configured {
-		run, err = h.gen.StartBranchBatch(c.Request.Context(), in)
-	}
+	run, err := h.startConfiguredCreationWorkflow(c, "voyager.storyboard", "branch", req.ClientRequestID, in)
 	if err != nil {
 		writeEvent("failed", gin.H{"event": "failed", "message": err.Error(), "status": "failed"})
 		return

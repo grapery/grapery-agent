@@ -84,6 +84,25 @@ func (c *Client) ListGenerationExecutions(ctx context.Context, kind domain.RunKi
 	return out.Data.Runs, nil
 }
 
+func (c *Client) FindGenerationExecutionByRequest(ctx context.Context, kind domain.RunKind, userID, clientRequestID string) (*domain.GenerationRun, error) {
+	path := fmt.Sprintf("/api/v1/agent-policy/generation-executions?kind=%s&userId=%s&clientRequestId=%s",
+		url.QueryEscape(string(kind)), url.QueryEscape(strings.TrimSpace(userID)), url.QueryEscape(strings.TrimSpace(clientRequestID)))
+	var out struct {
+		Code int `json:"code"`
+		Data struct {
+			Runs []*domain.GenerationRun `json:"runs"`
+		} `json:"data"`
+		Message string `json:"message"`
+	}
+	if err := c.getInternalJSON(ctx, path, &out); err != nil {
+		return nil, err
+	}
+	if out.Code != 1 || len(out.Data.Runs) == 0 {
+		return nil, fmt.Errorf("find generation execution: %s", out.Message)
+	}
+	return out.Data.Runs[0], nil
+}
+
 func (c *Client) SaveGenerationCheckpoint(ctx context.Context, id string, state []byte) error {
 	return c.SaveFencedGenerationCheckpoint(ctx, id, "", "", state)
 }

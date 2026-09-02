@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/grapestree/fgrapery/grapery-agent/internal/agentauth"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/domain"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/grapery_client"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/runstore"
@@ -25,7 +26,22 @@ func (s *Service) StartStoryboard(ctx context.Context, in domain.StoryboardGener
 	if run.Reused {
 		return run, nil
 	}
-	go s.executeStoryboard(context.Background(), run.ID, in)
+	if in.WorkflowReleaseID != "" {
+		if err := s.store.UpdateRun(ctx, run.ID, func(current *domain.GenerationRun) {
+			current.WorkflowReleaseID = in.WorkflowReleaseID
+		}); err != nil {
+			return nil, err
+		}
+	}
+	execCtx := context.Background()
+	if claims, ok := agentauth.ClaimsFromContext(ctx); ok {
+		execCtx = agentauth.ContextWithClaims(execCtx, claims)
+	}
+	if token, ok := grapery_client.AuthTokenFromContext(ctx); ok {
+		execCtx = grapery_client.ContextWithAuthToken(execCtx, token)
+	}
+	execCtx = runstore.ContextWithRunID(execCtx, run.ID)
+	go s.executeStoryboard(execCtx, run.ID, in)
 	return run, nil
 }
 
@@ -298,6 +314,7 @@ func (s *Service) createStoryboard(ctx context.Context, in domain.StoryboardGene
 			}
 		}
 		requestContext := grapery_client.ContextWithIdempotencyKey(c, idempotencyKey)
+		workflowRunID, _ := runstore.RunIDFromContext(c)
 		resp, err := s.client.CreateStoryboard(requestContext, grapery_client.CreateStoryboardRequest{
 			StoryID:              in.StoryID,
 			ParentID:             parentID,
@@ -307,6 +324,7 @@ func (s *Service) createStoryboard(ctx context.Context, in domain.StoryboardGene
 			CharacterRefs:        charRefs,
 			UseComicPagePipeline: in.UseComicPagePipeline,
 			WorkflowReleaseID:    in.WorkflowReleaseID,
+			WorkflowRunID:        workflowRunID,
 		})
 		if err != nil {
 			return nil, err

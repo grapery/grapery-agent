@@ -17,6 +17,7 @@ type CreateStoryboardRequest struct {
 	Tags                 []string       `json:"tags,omitempty"`
 	UseComicPagePipeline bool           `json:"useComicPagePipeline"`
 	WorkflowReleaseID    string         `json:"workflowReleaseId,omitempty"`
+	WorkflowRunID        string         `json:"workflowRunId,omitempty"`
 }
 
 type CharacterRef struct {
@@ -33,9 +34,12 @@ type SceneRef struct {
 }
 
 type StoryboardResponse struct {
-	ID      string `json:"id"`
-	StoryID string `json:"storyId"`
-	Title   string `json:"title"`
+	ID                  string `json:"id"`
+	StoryID             string `json:"storyId"`
+	Title               string `json:"title"`
+	Content             string `json:"content,omitempty"`
+	RawInput            string `json:"rawInput,omitempty"`
+	ContinuationSummary string `json:"continuationSummary,omitempty"`
 }
 
 type GenerateStoryboardContentRequest struct {
@@ -77,11 +81,13 @@ type StoryboardVideoRequest struct {
 }
 
 type ContinueStoryboardRequest struct {
-	RawInput      string   `json:"rawInput"`
-	SceneCount    int      `json:"sceneCount,omitempty"`
-	Characters    []string `json:"characters,omitempty"`
-	GenerateVideo bool     `json:"generateVideo,omitempty"`
-	ComicStyle    string   `json:"comicStyle,omitempty"`
+	RawInput          string   `json:"rawInput"`
+	SceneCount        int      `json:"sceneCount,omitempty"`
+	Characters        []string `json:"characters,omitempty"`
+	GenerateVideo     bool     `json:"generateVideo,omitempty"`
+	ComicStyle        string   `json:"comicStyle,omitempty"`
+	WorkflowReleaseID string   `json:"workflowReleaseId,omitempty"`
+	WorkflowRunID     string   `json:"workflowRunId,omitempty"`
 }
 
 type ContinueStoryboardResponse struct {
@@ -235,6 +241,14 @@ type ComicPageResult struct {
 func (c *Client) CreateStoryboard(ctx context.Context, req CreateStoryboardRequest) (*StoryboardResponse, error) {
 	var resp StoryboardResponse
 	if err := c.post(ctx, "/api/v1/storyboards", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Client) GetStoryboard(ctx context.Context, storyboardID string) (*StoryboardResponse, error) {
+	var resp StoryboardResponse
+	if err := c.get(ctx, "/api/v1/storyboards/"+storyboardID, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

@@ -34,6 +34,13 @@ func (s *Service) StartFragment(ctx context.Context, in domain.FragmentGenerateI
 	if run.Reused {
 		return run, nil
 	}
+	if in.WorkflowReleaseID != "" {
+		if err := s.store.UpdateRun(ctx, run.ID, func(current *domain.GenerationRun) {
+			current.WorkflowReleaseID = in.WorkflowReleaseID
+		}); err != nil {
+			return nil, err
+		}
+	}
 
 	execCtx := context.Background()
 	if claims, ok := agentauth.ClaimsFromContext(ctx); ok {
@@ -56,22 +63,29 @@ func (s *Service) executeFragment(ctx context.Context, runID string, in domain.F
 	deadline := time.Now().Add(pollTimeout)
 
 	req := grapery_client.GenerateFragmentRequest{
-		UserInput:              in.UserInput,
-		ImageUrls:              in.ReferenceImages,
-		ReferenceSlots:         fragmentReferenceSlotsToClient(in.ReferenceSlots),
-		ImageCount:             defaultInt(in.ImageCount, 3),
-		Style:                  in.Style,
-		Mood:                   in.Mood,
-		Length:                 in.Length,
-		Language:               defaultString(in.Language, "zh-Hans"),
-		Visibility:             defaultString(in.Visibility, "private"),
-		AspectRatio:            in.AspectRatio,
-		ConsistencyLevel:       in.ConsistencyLevel,
-		TargetDraftFragmentID:  in.TargetDraftFragmentID,
-		ReplaceImageIndex:      in.ReplaceImageIndex,
-		ClientMessageID:        in.ClientMessageID,
-		EnableReferenceAssets:  in.EnableReferenceAssets,
-		IncludeGenerationTrace: in.IncludeGenerationTrace,
+		UserInput:               in.UserInput,
+		ImageUrls:               in.ReferenceImages,
+		ReferenceSlots:          fragmentReferenceSlotsToClient(in.ReferenceSlots),
+		ImageCount:              defaultInt(in.ImageCount, 3),
+		Style:                   in.Style,
+		Mood:                    in.Mood,
+		Length:                  in.Length,
+		Language:                defaultString(in.Language, "zh-Hans"),
+		Visibility:              defaultString(in.Visibility, "private"),
+		AspectRatio:             in.AspectRatio,
+		ConsistencyLevel:        in.ConsistencyLevel,
+		TargetDraftFragmentID:   in.TargetDraftFragmentID,
+		ReplaceImageIndex:       in.ReplaceImageIndex,
+		ClientMessageID:         in.ClientMessageID,
+		EnableReferenceAssets:   in.EnableReferenceAssets,
+		IncludeGenerationTrace:  in.IncludeGenerationTrace,
+		WorkflowReleaseID:       in.WorkflowReleaseID,
+		WorkflowRunID:           runID,
+		WorkflowSystemPrompt:    in.WorkflowSystemPrompt,
+		WorkflowUserPrompt:      in.WorkflowUserPrompt,
+		WorkflowModelConfig:     in.WorkflowModelConfig,
+		WorkflowOutputSchema:    in.WorkflowOutputSchema,
+		WorkflowPromptVersionID: in.WorkflowPromptVersionID,
 	}
 
 	startResp, err := s.startFragmentTask(ctx, req)
