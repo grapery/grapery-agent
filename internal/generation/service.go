@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	modelcomponent "github.com/cloudwego/eino/components/model"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/domain"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/grapery_client"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/runstore"
@@ -31,7 +32,14 @@ type Service struct {
 	provider           string
 	model              string
 	execFragmentPanel  bool
+	workflowPlanner    modelcomponent.BaseChatModel
 	workflowActivities *workflowruntime.ActivityRegistry
+}
+
+// SetWorkflowPlannerModel injects the Eino model used by AI planning nodes.
+// The outer durable workflow remains the owner of retries and checkpoints.
+func (s *Service) SetWorkflowPlannerModel(chatModel modelcomponent.BaseChatModel) {
+	s.workflowPlanner = chatModel
 }
 
 func NewService(client *grapery_client.Client, store runstore.Store, textProvider, textModel string, execFragmentPanel bool) *Service {

@@ -107,6 +107,8 @@ type StoryboardWorkflowStageResponse struct {
 	Stage           string `json:"stage"`
 	Progress        int    `json:"progress"`
 	AlreadyComplete bool   `json:"alreadyComplete"`
+	IssueCount      int    `json:"issueCount,omitempty"`
+	RepairApplied   bool   `json:"repairApplied,omitempty"`
 }
 
 type StoryboardWorkflowStageRequest struct {

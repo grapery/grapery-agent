@@ -2,17 +2,23 @@ package http
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/grapestree/fgrapery/grapery-agent/internal/agentauth"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/agents"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/config"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/grapery_client"
+	"github.com/grapestree/fgrapery/grapery-agent/internal/observability"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/runstore"
 
 	"github.com/cloudwego/eino/adk"
@@ -23,20 +29,26 @@ import (
 
 // Handler 管理 HTTP 路由和 Agent 调用
 type Handler struct {
-	registry   *agents.AgentRegistry
-	client     *grapery_client.Client
-	checkpoint adk.CheckPointStore
-	genHandler *GenerationHandler
-	agentAuth  agentAuthDeps
+	registry      *agents.AgentRegistry
+	client        *grapery_client.Client
+	checkpoint    adk.CheckPointStore
+	genHandler    *GenerationHandler
+	agentAuth     agentAuthDeps
+	sessions      *chatSessionStore
+	observer      *observability.Collector
+	observerToken string
 }
 
-func NewHandler(registry *agents.AgentRegistry, client *grapery_client.Client, checkpoint adk.CheckPointStore, genHandler *GenerationHandler, agentAuth config.AgentAuthConfig) *Handler {
+func NewHandler(registry *agents.AgentRegistry, client *grapery_client.Client, checkpoint adk.CheckPointStore, genHandler *GenerationHandler, agentAuth config.AgentAuthConfig, sessionMaxMessages int) *Handler {
 	return &Handler{
-		registry:   registry,
-		client:     client,
-		checkpoint: checkpoint,
-		genHandler: genHandler,
-		agentAuth:  newAgentAuthDeps(agentAuth, client),
+		registry:      registry,
+		client:        client,
+		checkpoint:    checkpoint,
+		genHandler:    genHandler,
+		agentAuth:     newAgentAuthDeps(agentAuth, client),
+		sessions:      newChatSessionStore(checkpoint, sessionMaxMessages),
+		observer:      observability.NewCollector(200),
+		observerToken: strings.TrimSpace(agentAuth.ObservabilityToken),
 	}
 }
 
@@ -70,6 +82,8 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.POST("/branch/chat/sync", h.agentChatSync(h.registry.BranchExplorer, "branch"))
 		api.POST("/branch/chat/:checkpointID/resume", h.agentResume(h.registry.BranchExplorer, "branch"))
 		api.POST("/branch/chat/:checkpointID/resume/sync", h.agentResumeSync(h.registry.BranchExplorer, "branch"))
+		api.DELETE("/sessions/:agent/:sessionID", h.clearSession)
+		api.GET("/observability", h.getObservability)
 	}
 	if h.genHandler != nil {
 		h.genHandler.RegisterRoutes(r, h.agentAuth, h.client)
@@ -92,6 +106,7 @@ func (h *Handler) runIDMiddleware() gin.HandlerFunc {
 type ChatRequest struct {
 	Message     string `json:"message" binding:"required"`
 	InterruptID string `json:"interruptId,omitempty"`
+	SessionID   string `json:"sessionId,omitempty" binding:"omitempty,max=128"`
 }
 
 type ChatResponse struct {
@@ -102,6 +117,7 @@ type ChatResponse struct {
 	InterruptID  string `json:"interruptId,omitempty"`
 	CheckPointID string `json:"checkpointId,omitempty"`
 	Structured   any    `json:"structured,omitempty"`
+	SessionID    string `json:"sessionId,omitempty"`
 }
 
 type chatDelivery int
@@ -140,6 +156,15 @@ func (h *Handler) bindAgentChat(agent *adk.ChatModelAgent, agentName string, del
 		}
 
 		ctx := c.Request.Context()
+		sessionKey, err := h.resolveSessionKey(c, agentName, req.SessionID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": -1, "message": err.Error()})
+			return
+		}
+		if sessionKey != "" {
+			unlock := h.sessions.lock(sessionKey)
+			defer unlock()
+		}
 		var cpID string
 		if resume {
 			cpID = c.Param("checkpointID")
@@ -156,6 +181,7 @@ func (h *Handler) bindAgentChat(agent *adk.ChatModelAgent, agentName string, del
 			CheckPointStore: h.checkpoint,
 			EnableStreaming: stream,
 		})
+		callbackOption := adk.WithCallbacks(h.observer.Handler(agentName, cpID))
 
 		var iter *adk.AsyncIterator[*adk.AgentEvent]
 		if resume {
@@ -166,29 +192,44 @@ func (h *Handler) bindAgentChat(agent *adk.ChatModelAgent, agentName string, del
 			var err error
 			iter, err = runner.ResumeWithParams(ctx, cpID, &adk.ResumeParams{
 				Targets: targets,
-			})
+			}, callbackOption)
 			if err != nil {
 				logChatError(agentName, mode, cpID, fmt.Errorf("resume failed: %w", err))
 				c.JSON(http.StatusInternalServerError, gin.H{"code": -5, "message": fmt.Sprintf("resume failed: %v", err)})
 				return
 			}
+			if err := h.sessions.append(ctx, sessionKey, schema.UserMessage(req.Message)); err != nil {
+				// Resume has already started, so keep consuming its iterator rather
+				// than abandoning a live Agent run because auxiliary memory failed.
+				log.Printf("[agent-chat] session_save_error agent=%s session=%s err=%v", agentName, req.SessionID, err)
+			}
 		} else {
-			messages := []adk.Message{schema.UserMessage(req.Message)}
-			iter = runner.Run(ctx, messages, adk.WithCheckPointID(cpID))
+			messages, err := h.sessions.load(ctx, sessionKey)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": -5, "message": "load session: " + err.Error()})
+				return
+			}
+			userMessage := schema.UserMessage(req.Message)
+			messages = append(messages, userMessage)
+			if err := h.sessions.append(ctx, sessionKey, userMessage); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": -5, "message": "save session: " + err.Error()})
+				return
+			}
+			iter = runner.Run(ctx, messages, adk.WithCheckPointID(cpID), callbackOption)
 		}
 
 		if stream {
-			h.processEventsSSE(c, iter, cpID, agentName, started)
+			h.processEventsSSE(c, iter, cpID, agentName, req.SessionID, sessionKey, started)
 			return
 		}
-		h.processEventsSync(c, iter, cpID, agentName, started)
+		h.processEventsSync(c, iter, cpID, agentName, req.SessionID, sessionKey, started)
 	}
 }
 
 // ============ 事件处理 ============
 
 // processEventsSync 同步收集所有事件后返回单个 JSON（与 grapery 信封一致）。
-func (h *Handler) processEventsSync(c *gin.Context, iter *adk.AsyncIterator[*adk.AgentEvent], checkpointID, agentName string, started time.Time) {
+func (h *Handler) processEventsSync(c *gin.Context, iter *adk.AsyncIterator[*adk.AgentEvent], checkpointID, agentName, sessionID, sessionKey string, started time.Time) {
 	var finalMessage string
 	var interrupted bool
 	var question string
@@ -224,6 +265,15 @@ func (h *Handler) processEventsSync(c *gin.Context, iter *adk.AsyncIterator[*adk
 	}
 
 	cleanMessage, structured := extractStructuredPayload(finalMessage)
+	if interrupted && strings.TrimSpace(question) != "" {
+		if err := h.sessions.append(c.Request.Context(), sessionKey, schema.AssistantMessage(question, nil)); err != nil {
+			log.Printf("[agent-chat] session_save_error agent=%s session=%s err=%v", agentName, sessionID, err)
+		}
+	} else if cleanMessage != "" {
+		if err := h.sessions.append(c.Request.Context(), sessionKey, schema.AssistantMessage(cleanMessage, nil)); err != nil {
+			log.Printf("[agent-chat] session_save_error agent=%s session=%s err=%v", agentName, sessionID, err)
+		}
+	}
 	resp := ChatResponse{
 		Message:      cleanMessage,
 		Finished:     !interrupted,
@@ -232,6 +282,7 @@ func (h *Handler) processEventsSync(c *gin.Context, iter *adk.AsyncIterator[*adk
 		InterruptID:  interruptID,
 		CheckPointID: checkpointID,
 		Structured:   structured,
+		SessionID:    sessionID,
 	}
 	logChatComplete(agentName, "sync", checkpointID, resp, started)
 	c.JSON(http.StatusOK, gin.H{
@@ -241,7 +292,7 @@ func (h *Handler) processEventsSync(c *gin.Context, iter *adk.AsyncIterator[*adk
 }
 
 // processEventsSSE 以 Server-Sent Events 流式推送事件
-func (h *Handler) processEventsSSE(c *gin.Context, iter *adk.AsyncIterator[*adk.AgentEvent], checkpointID, agentName string, started time.Time) {
+func (h *Handler) processEventsSSE(c *gin.Context, iter *adk.AsyncIterator[*adk.AgentEvent], checkpointID, agentName, sessionID, sessionKey string, started time.Time) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
@@ -259,6 +310,24 @@ func (h *Handler) processEventsSSE(c *gin.Context, iter *adk.AsyncIterator[*adk.
 
 	writeSSE("start", gin.H{"checkpointId": checkpointID})
 	logSSEEvent(agentName, checkpointID, "start", "")
+	var assistantText strings.Builder
+	emitMessage := func(message *schema.Message, role schema.RoleType) {
+		if message == nil {
+			return
+		}
+		cleanMessage, structured := extractStructuredPayload(message.Content)
+		if role == schema.Assistant || message.Role == schema.Assistant {
+			assistantText.WriteString(message.Content)
+		}
+		// Some providers send a final usage-only stream chunk. Preserve its
+		// callback metadata, but do not expose an empty chat event to clients.
+		if cleanMessage == "" && structured == nil {
+			return
+		}
+		resp := ChatResponse{Message: cleanMessage, CheckPointID: checkpointID, Structured: structured, SessionID: sessionID}
+		logSSEEvent(agentName, checkpointID, "message", sseDetail(resp))
+		writeSSE("message", resp)
+	}
 
 	for {
 		event, ok := iter.Next()
@@ -274,9 +343,15 @@ func (h *Handler) processEventsSSE(c *gin.Context, iter *adk.AsyncIterator[*adk.
 
 		if event.Action != nil && event.Action.Interrupted != nil {
 			info := event.Action.Interrupted
+			question := extractQuestion(info)
+			if strings.TrimSpace(question) != "" {
+				if err := h.sessions.append(c.Request.Context(), sessionKey, schema.AssistantMessage(question, nil)); err != nil {
+					log.Printf("[agent-chat] session_save_error agent=%s session=%s err=%v", agentName, sessionID, err)
+				}
+			}
 			resp := ChatResponse{
 				Interrupted:  true,
-				Question:     extractQuestion(info),
+				Question:     question,
 				InterruptID:  extractInterruptID(info),
 				CheckPointID: checkpointID,
 			}
@@ -288,21 +363,86 @@ func (h *Handler) processEventsSSE(c *gin.Context, iter *adk.AsyncIterator[*adk.
 		if event.Output != nil && event.Output.MessageOutput != nil {
 			mv := event.Output.MessageOutput
 			if mv.Message != nil {
-				cleanMessage, structured := extractStructuredPayload(mv.Message.Content)
-				resp := ChatResponse{
-					Message:      cleanMessage,
-					CheckPointID: checkpointID,
-					Structured:   structured,
+				emitMessage(mv.Message, mv.Role)
+			}
+			if mv.MessageStream != nil {
+				for {
+					message, err := mv.MessageStream.Recv()
+					if errors.Is(err, io.EOF) {
+						break
+					}
+					if err != nil {
+						mv.MessageStream.Close()
+						logChatAgentError(agentName, "sse", checkpointID, started, err)
+						writeSSE("error", gin.H{"error": err.Error()})
+						return
+					}
+					emitMessage(message, mv.Role)
 				}
-				logSSEEvent(agentName, checkpointID, "message", sseDetail(resp))
-				writeSSE("message", resp)
+				mv.MessageStream.Close()
 			}
 		}
 	}
 
-	done := ChatResponse{Finished: true, CheckPointID: checkpointID}
+	cleanAssistant, structured := extractStructuredPayload(strings.TrimSpace(assistantText.String()))
+	if message := strings.TrimSpace(cleanAssistant); message != "" {
+		if err := h.sessions.append(c.Request.Context(), sessionKey, schema.AssistantMessage(message, nil)); err != nil {
+			log.Printf("[agent-chat] session_save_error agent=%s session=%s err=%v", agentName, sessionID, err)
+		}
+	}
+	done := ChatResponse{Finished: true, CheckPointID: checkpointID, SessionID: sessionID, Structured: structured}
 	logChatComplete(agentName, "sse", checkpointID, done, started)
 	writeSSE("done", done)
+}
+
+func (h *Handler) resolveSessionKey(c *gin.Context, agentName, sessionID string) (string, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return "", nil
+	}
+	for _, r := range sessionID {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.') {
+			return "", errors.New("sessionId contains unsupported characters")
+		}
+	}
+	owner := ""
+	if claims, ok := agentauth.ClaimsFromContext(c.Request.Context()); ok {
+		owner = strings.TrimSpace(claims.UserID)
+	}
+	if owner == "" {
+		if token, ok := grapery_client.AuthTokenFromContext(c.Request.Context()); ok {
+			digest := sha256.Sum256([]byte(token))
+			owner = fmt.Sprintf("jwt-%x", digest[:8])
+		}
+	}
+	if owner == "" {
+		return "", errors.New("sessionId requires authenticated user identity")
+	}
+	return "eino-session:" + owner + ":" + agentName + ":" + sessionID, nil
+}
+
+func (h *Handler) clearSession(c *gin.Context) {
+	key, err := h.resolveSessionKey(c, strings.TrimSpace(c.Param("agent")), c.Param("sessionID"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": -1, "message": err.Error()})
+		return
+	}
+	unlock := h.sessions.lock(key)
+	defer unlock()
+	if err := h.sessions.clear(c.Request.Context(), key); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": -5, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 1, "message": "success"})
+}
+
+func (h *Handler) getObservability(c *gin.Context) {
+	provided := strings.TrimSpace(c.GetHeader("X-Agent-Observability-Token"))
+	if h.observerToken == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(h.observerToken)) != 1 {
+		c.JSON(http.StatusNotFound, gin.H{"code": -4, "message": "not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 1, "message": "success", "data": h.observer.Snapshot()})
 }
 
 // ============ 辅助函数 ============

@@ -17,11 +17,15 @@ type Config struct {
 // AgentAuthConfig 控制 grapery-agent 对入站请求的 Agent Access Token 校验。
 type AgentAuthConfig struct {
 	TokenVerifyKey           string
+	// InternalAPIKey 期望的内部服务密钥（env: GRAPERY_INTERNAL_API_KEY）。
+	// 固定版本试运行请求必须携带 X-Internal-Api-Key 且与此一致。
+	InternalAPIKey           string
 	AccessTokenRequired      bool
 	ReplayCacheEnabled       bool
 	ExecFragmentPanelEnabled bool
 	AuditSyncEnabled         bool
 	DurableRuntimeRequired   bool
+	ObservabilityToken       string
 }
 
 type ArtifactConfig struct {
@@ -47,15 +51,18 @@ const (
 )
 
 type EinoConfig struct {
-	TextModel      string // huoshan-endpoint-id 或 gemini-model-name
-	TextProvider   string // huoshan | gemini
-	HuoshanAPIKey  string
-	HuoshanBaseURL string
-	GeminiAPIKey   string
-	MaxIterations  int
-	RequestTimeout int // seconds
-	ImageModel     string
-	VideoModel     string
+	TextModel          string // huoshan-endpoint-id 或 gemini-model-name
+	TextProvider       string // huoshan | gemini
+	HuoshanAPIKey      string
+	HuoshanBaseURL     string
+	GeminiAPIKey       string
+	MaxIterations      int
+	SessionMaxMessages int
+	KnowledgeDir       string
+	KnowledgeTopK      int
+	RequestTimeout     int // seconds
+	ImageModel         string
+	VideoModel         string
 }
 
 // EffectiveImageTimeout returns HTTP timeout (seconds) for image/video models.
@@ -82,21 +89,26 @@ func Load() *Config {
 		AgentAuth: AgentAuthConfig{
 			TokenVerifyKey:           effectiveAgentTokenVerifyKey(),
 			AccessTokenRequired:      getEnvBool("AGENT_ACCESS_TOKEN_REQUIRED", false),
+			InternalAPIKey:           getEnv("GRAPERY_INTERNAL_API_KEY", ""),
 			ReplayCacheEnabled:       getEnvBool("AGENT_TOKEN_REPLAY_CACHE_ENABLED", false),
 			ExecFragmentPanelEnabled: getEnvBool("AGENT_EXEC_FRAGMENT_PANEL_ENABLED", true),
 			AuditSyncEnabled:         getEnvBool("AUDIT_SYNC_TO_GRAPERY_ENABLED", true),
 			DurableRuntimeRequired:   getEnvBool("DURABLE_RUNTIME_REQUIRED", isProductionEnvironment()),
+			ObservabilityToken:       getEnv("AGENT_OBSERVABILITY_TOKEN", ""),
 		},
 		Eino: EinoConfig{
-			TextModel:      loadTextModel(),
-			TextProvider:   getEnv("EINO_TEXT_PROVIDER", getEnv("AI_DEFAULT_PROVIDER", "huoshan")),
-			HuoshanAPIKey:  getEnv("HUOSHAN_API_KEY", ""),
-			HuoshanBaseURL: getEnv("HUOSHAN_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
-			GeminiAPIKey:   getEnv("GEMINI_API_KEY", ""),
-			MaxIterations:  getEnvInt("EINO_MAX_ITERATIONS", 30),
-			RequestTimeout: getEnvInt("EINO_REQUEST_TIMEOUT", 180),
-			ImageModel:     getEnv("HUOSHAN_IMAGE_MODEL", "doubao-seedream-5-0-260128"),
-			VideoModel:     getEnv("HUOSHAN_VIDEO_MODEL", "doubao-seedance-1-5-pro-251215"),
+			TextModel:          loadTextModel(),
+			TextProvider:       getEnv("EINO_TEXT_PROVIDER", getEnv("AI_DEFAULT_PROVIDER", "huoshan")),
+			HuoshanAPIKey:      getEnv("HUOSHAN_API_KEY", ""),
+			HuoshanBaseURL:     getEnv("HUOSHAN_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
+			GeminiAPIKey:       getEnv("GEMINI_API_KEY", ""),
+			MaxIterations:      getEnvInt("EINO_MAX_ITERATIONS", 30),
+			SessionMaxMessages: getEnvInt("EINO_SESSION_MAX_MESSAGES", 40),
+			KnowledgeDir:       getEnv("EINO_KNOWLEDGE_DIR", ""),
+			KnowledgeTopK:      getEnvInt("EINO_KNOWLEDGE_TOP_K", 4),
+			RequestTimeout:     getEnvInt("EINO_REQUEST_TIMEOUT", 180),
+			ImageModel:         getEnv("HUOSHAN_IMAGE_MODEL", "doubao-seedream-5-0-260128"),
+			VideoModel:         getEnv("HUOSHAN_VIDEO_MODEL", "doubao-seedance-1-5-pro-251215"),
 		},
 	}
 }

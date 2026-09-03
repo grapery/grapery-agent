@@ -77,12 +77,17 @@ func NewChatModel(cfg config.EinoConfig) *HuoshanChatModel {
 
 // arkChatRequest 火山方舟 Chat API 请求格式（OpenAI 兼容）
 type arkChatRequest struct {
-	Model       string           `json:"model"`
-	Messages    []arkMessage     `json:"messages"`
-	Tools       []arkTool        `json:"tools,omitempty"`
-	Temperature float64          `json:"temperature,omitempty"`
-	MaxTokens   int              `json:"max_tokens,omitempty"`
-	Stream      bool             `json:"stream,omitempty"`
+	Model         string            `json:"model"`
+	Messages      []arkMessage      `json:"messages"`
+	Tools         []arkTool         `json:"tools,omitempty"`
+	Temperature   float64           `json:"temperature,omitempty"`
+	MaxTokens     int               `json:"max_tokens,omitempty"`
+	Stream        bool              `json:"stream,omitempty"`
+	StreamOptions *arkStreamOptions `json:"stream_options,omitempty"`
+}
+
+type arkStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type arkMessage struct {
@@ -93,8 +98,8 @@ type arkMessage struct {
 }
 
 type arkTool struct {
-	Type     string       `json:"type"`
-	Function arkFunction  `json:"function"`
+	Type     string      `json:"type"`
+	Function arkFunction `json:"function"`
 }
 
 type arkFunction struct {
@@ -139,6 +144,11 @@ type arkStreamChunk struct {
 		} `json:"delta"`
 		FinishReason *string `json:"finish_reason"`
 	} `json:"choices"`
+	Usage struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage"`
 }
 
 func (m *HuoshanChatModel) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
@@ -180,7 +190,14 @@ func (m *HuoshanChatModel) Generate(ctx context.Context, input []*schema.Message
 		return nil, fmt.Errorf("no choices in response")
 	}
 
-	return arkToSchemaMessage(result.Choices[0].Message), nil
+	message := arkToSchemaMessage(result.Choices[0].Message)
+	message.ResponseMeta = &schema.ResponseMeta{
+		FinishReason: result.Choices[0].FinishReason,
+		Usage: &schema.TokenUsage{
+			PromptTokens: result.Usage.PromptTokens, CompletionTokens: result.Usage.CompletionTokens, TotalTokens: result.Usage.TotalTokens,
+		},
+	}
+	return message, nil
 }
 
 func (m *HuoshanChatModel) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
@@ -194,12 +211,13 @@ func (m *HuoshanChatModel) Stream(ctx context.Context, input []*schema.Message, 
 	arkTools := toArkTools(tools)
 
 	reqBody := arkChatRequest{
-		Model:       m.model,
-		Messages:    messages,
-		Tools:       arkTools,
-		Stream:      true,
-		Temperature: applyFloatPtr(options.Temperature),
-		MaxTokens:   applyIntPtr(options.MaxTokens),
+		Model:         m.model,
+		Messages:      messages,
+		Tools:         arkTools,
+		Stream:        true,
+		StreamOptions: &arkStreamOptions{IncludeUsage: true},
+		Temperature:   applyFloatPtr(options.Temperature),
+		MaxTokens:     applyIntPtr(options.MaxTokens),
 	}
 
 	resp, err := m.doRequest(ctx, reqBody)
@@ -213,7 +231,7 @@ func (m *HuoshanChatModel) Stream(ctx context.Context, input []*schema.Message, 
 		return nil, fmt.Errorf("huoshan API error %d: %s", resp.StatusCode, string(body))
 	}
 
-_sr, sw := schema.Pipe[*schema.Message](1)
+	_sr, sw := schema.Pipe[*schema.Message](1)
 
 	go func() {
 		defer sw.Close()
@@ -258,6 +276,14 @@ _sr, sw := schema.Pipe[*schema.Message](1)
 					msg.Role = schema.Assistant
 				}
 				sw.Send(msg, nil)
+			}
+			if chunk.Usage.TotalTokens > 0 {
+				sw.Send(&schema.Message{
+					Role: schema.Assistant,
+					ResponseMeta: &schema.ResponseMeta{Usage: &schema.TokenUsage{
+						PromptTokens: chunk.Usage.PromptTokens, CompletionTokens: chunk.Usage.CompletionTokens, TotalTokens: chunk.Usage.TotalTokens,
+					}},
+				}, nil)
 			}
 		}
 		if err := scanner.Err(); err != nil {

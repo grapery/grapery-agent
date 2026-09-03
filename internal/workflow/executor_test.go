@@ -204,3 +204,62 @@ func TestExecuteWithOptionsResumesAfterCompletedNode(t *testing.T) {
 		t.Fatalf("unexpected resumed result: checkpoints=%d result=%+v", checkpointCount, result)
 	}
 }
+
+func TestExecuteAppliesAllowlistedWorkflowInputPatch(t *testing.T) {
+	registry := NewActivityRegistry()
+	_ = registry.Register("plan", func(context.Context, map[string]any, map[string]any) (map[string]any, error) {
+		return map[string]any{"workflowInputPatch": map[string]any{"sceneCount": 6, "unsafe": "ignored"}}, nil
+	})
+	_ = registry.Register("consume", func(_ context.Context, input, _ map[string]any) (map[string]any, error) {
+		return map[string]any{"sceneCount": input["sceneCount"], "unsafe": input["unsafe"]}, nil
+	})
+	release := &domain.WorkflowRelease{
+		ID: "wfr_patch", Key: "patch", Version: 1, Status: "released",
+		Definition: domain.WorkflowDefinition{Nodes: []domain.WorkflowNode{
+			{ID: "plan", Type: "activity", Activity: "plan", Config: map[string]any{"inputPatchAllowlist": []string{"sceneCount"}}},
+			{ID: "consume", Type: "activity", Activity: "consume", DependsOn: []string{"plan"}},
+		}},
+	}
+	compiled, err := Compile(release, registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := Execute(context.Background(), compiled, registry, map[string]any{"sceneCount": 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.NodeOutputs["consume"]["sceneCount"] != 6 || result.NodeOutputs["consume"]["unsafe"] != nil {
+		t.Fatalf("unexpected patched input: %#v", result.NodeOutputs["consume"])
+	}
+}
+
+func TestExecuteRestoresWorkflowInputPatchFromCheckpoint(t *testing.T) {
+	registry := NewActivityRegistry()
+	_ = registry.Register("plan", func(context.Context, map[string]any, map[string]any) (map[string]any, error) {
+		t.Fatal("completed planner should not execute")
+		return nil, nil
+	})
+	_ = registry.Register("consume", func(_ context.Context, input, _ map[string]any) (map[string]any, error) {
+		return map[string]any{"sceneCount": input["sceneCount"]}, nil
+	})
+	release := &domain.WorkflowRelease{
+		ID: "wfr_patch_resume", Key: "patch", Version: 1, Status: "released",
+		Definition: domain.WorkflowDefinition{Nodes: []domain.WorkflowNode{
+			{ID: "plan", Type: "activity", Activity: "plan", Config: map[string]any{"inputPatchAllowlist": []any{"sceneCount"}}},
+			{ID: "consume", Type: "activity", Activity: "consume", DependsOn: []string{"plan"}},
+		}},
+	}
+	compiled, err := Compile(release, registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := ExecuteWithOptions(context.Background(), compiled, registry, map[string]any{"sceneCount": 3}, ExecutionOptions{
+		NodeOutputs: map[string]map[string]any{"plan": {"workflowInputPatch": map[string]any{"sceneCount": 7}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.NodeOutputs["consume"]["sceneCount"] != 7 {
+		t.Fatalf("checkpoint patch was not restored: %#v", result.NodeOutputs["consume"])
+	}
+}

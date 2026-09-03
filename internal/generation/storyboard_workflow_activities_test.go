@@ -17,7 +17,8 @@ func TestSplitStoryboardWorkflowActivitiesCompile(t *testing.T) {
 			{ID: "generate_storyboard", Type: "activity", Activity: "storyboard.ensure_draft"},
 			{ID: "bible", Type: "activity", Activity: "storyboard.generate_bible_plan", DependsOn: []string{"generate_storyboard"}},
 			{ID: "scene_plan", Type: "activity", Activity: "storyboard.generate_scene_plan", DependsOn: []string{"bible"}},
-			{ID: "persist", Type: "persist", Activity: "storyboard.persist_content", DependsOn: []string{"scene_plan"}},
+			{ID: "review", Type: "activity", Activity: "storyboard.review_content", DependsOn: []string{"scene_plan"}},
+			{ID: "persist", Type: "persist", Activity: "storyboard.persist_content", DependsOn: []string{"review"}},
 			{ID: "ensure_images", Type: "activity", Activity: "storyboard.ensure_images", DependsOn: []string{"persist"}},
 		}},
 	}

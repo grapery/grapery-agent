@@ -26,12 +26,12 @@
 | 对话式创作 | 故事角色 | `POST /api/v1/agent/character/chat` | 是 |
 | 对话式创作 | 故事板 | `POST /api/v1/agent/storyboard/chat` | 是 |
 | 对话式创作 | 多分支探索 | `POST /api/v1/agent/branch/chat` | 是 |
-| 人机中断恢复 | 上述四类 `.../chat/:checkpointID/resume` | 同上 | 是 |
+| 人机中断恢复 | 上述五类 `.../chat/:checkpointID/resume` | 同上 | 是 |
 | 非聊天生成 | 碎片 / 故事 / 故事板 / 角色 / 分支批 | `POST /api/v1/generation/*` | **否**（直连 grapery API） |
 | Run 查询 | 生成任务状态与工具轨迹 | `GET /api/v1/generation/runs/:id` | 否 |
 | RL / 评估 | 偏好对、分支选择、JSONL 导出、离线 eval | `POST/GET /api/v1/generation/artifacts/*`、`/eval/*` | 否 |
 
-### 1.1 四个 Chat Agent
+### 1.1 五个 Chat Agent
 
 | Agent 名称 | 职责 | Agent 版本 ID | 工具包 |
 |------------|------|---------------|--------|
@@ -128,7 +128,7 @@ flowchart TB
 
 - **Chat 路径**：Agent LLM（Eino）决定调哪些工具；工具内部请求 **grapery**，由 grapery 再调业务 LLM。
 - **Generation 路径**：不调用 Eino Agent，仅 **API 编排 + 轮询 + ToolCall 记录**。
-- **RunStore / CheckPoint**：当前为进程内内存，重启丢失（见 §6 限制）。
+- **RunStore / CheckPoint**：配置 `GRAPERY_API_KEY` 时使用 grapery 持久化；未配置时回退为进程内内存，重启丢失（见 §9 限制）。
 
 ---
 
@@ -278,7 +278,7 @@ sequenceDiagram
 
 | 方法 | 路径 | Body |
 |------|------|------|
-| POST | `/api/v1/agent/fragment/chat` | `{ "message", "interruptId?" }` |
+| POST | `/api/v1/agent/fragment/chat` | `{ "message", "interruptId?", "sessionId?" }` |
 | POST | `/api/v1/agent/fragment/chat/:checkpointID/resume` | 同上 |
 | POST | `/api/v1/agent/character/chat` | 同上 |
 | POST | `/api/v1/agent/character/chat/:checkpointID/resume` | 同上 |
@@ -289,7 +289,14 @@ sequenceDiagram
 
 Query：`?stream=true` 启用流式（Eino streaming）。
 
-响应字段：`message`、`finished`、`interrupted`、`question`、`interruptId`、`checkpointId`。
+响应字段：`message`、`finished`、`interrupted`、`question`、`interruptId`、`checkpointId`、`sessionId`。同一用户、Agent 和 `sessionId` 的历史消息通过 Eino CheckPointStore 持久化，并受 `EINO_SESSION_MAX_MESSAGES` 限制。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| DELETE | `/api/v1/agent/sessions/:agent/:sessionID` | 清除当前用户指定 Agent 的会话记忆 |
+| GET | `/api/v1/agent/observability` | Eino component 调用数、错误、耗时、Token 与近期 span；需 `X-Agent-Observability-Token` |
+
+配置 `EINO_KNOWLEDGE_DIR` 后，服务会在启动时读取目录中的 Markdown、MDX 和 TXT，构建只读领域知识 Retriever，并向所有创作 Agent 注册 `search_domain_knowledge` Tool。目录为空时不注册该工具。
 
 ### 5.3 Generation
 
@@ -410,6 +417,10 @@ cd grapery-agent && go test ./internal/prompt/ -run TestGraperyPromptAnchors
 | `EINO_TEXT_PROVIDER` | `huoshan` 或 `gemini`（Agent ChatModel） |
 | `EINO_TEXT_MODEL` | 模型 endpoint / 名称 |
 | `EINO_MAX_ITERATIONS` | Agent 最大工具循环次数，默认 30 |
+| `EINO_SESSION_MAX_MESSAGES` | 每个用户/Agent 会话保留的最近消息数，默认 40 |
+| `EINO_KNOWLEDGE_DIR` | 可选领域知识目录；空值关闭 Retriever Tool |
+| `EINO_KNOWLEDGE_TOP_K` | 默认召回片段数，默认 4 |
+| `AGENT_OBSERVABILITY_TOKEN` | 观测查询令牌；空值关闭观测接口 |
 | `HUOSHAN_API_KEY` / `HUOSHAN_BASE_URL` | Agent 侧火山配置 |
 | `GEMINI_API_KEY` | Agent 侧 Gemini 备选 |
 
@@ -420,10 +431,12 @@ cd grapery-agent && go test ./internal/prompt/ -run TestGraperyPromptAnchors
 | 路径 | 职责 |
 |------|------|
 | `cmd/server/main.go` | 启动 Gin、注册 Agent + Generation |
-| `internal/agents/` | 四个 ChatModelAgent 注册 |
+| `internal/agents/` | 五个 ChatModelAgent 注册 |
+| `internal/knowledge/` | Eino Retriever 及领域知识索引 |
+| `internal/observability/` | Eino Callback 指标与近期 span |
 | `internal/tools/*/` | Eino 工具 → grapery_client |
 | `internal/generation/` | 非聊天 Run 编排 |
-| `internal/runstore/` | Run / ToolCall / Artifact 内存存储 |
+| `internal/runstore/` | Run / ToolCall 的内存与 grapery 持久化实现 |
 | `internal/prompt/` | Agent Instruction 与 grapery 对照 catalog |
 | `internal/grapery_client/` | grapery HTTP 封装 |
 | `internal/eval/` | 离线 eval harness |
@@ -436,7 +449,7 @@ cd grapery-agent && go test ./internal/prompt/ -run TestGraperyPromptAnchors
 
 1. **双路径提示词**：Chat 用 Agent Instruction；生成质量由 grapery prompt 决定，两处需人工/sync 测试对齐（见 PROMPT_SYNC）。
 2. **Generation 异步 JWT**：`Start*` 多在 `context.Background()` 中执行，若未配置 `GRAPERY_API_KEY`，异步阶段可能丢失用户 JWT。
-3. **内存存储**：Run、Checkpoint 重启清空；无 cancel/retry HTTP API（domain 已预留 `cancelled`）。
+3. **持久化降级**：未配置 `GRAPERY_API_KEY` 时 Run、Checkpoint 和会话历史会回退到内存，重启清空；无 cancel/retry HTTP API（domain 已预留 `cancelled`）。
 4. **故事板 Run**：默认在 `generate/content` 提交后即 `succeeded`，未必等待异步内容/出图完成（除非 `pollProgress` / 单独查询 grapery）。
 5. **分支批处理**：部分子分支失败时父 run 仍可能标记成功。
 6. **无 Story Chat Agent**：故事仅 `generation/stories` + grapery AI 任务。

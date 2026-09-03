@@ -6,6 +6,7 @@ require (
 	github.com/cloudwego/eino v0.8.11
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 )
 
 require (

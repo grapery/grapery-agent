@@ -39,12 +39,14 @@ type generationLeaseProvider interface {
 
 func (s *Service) newWorkflowActivityRegistry() *workflowruntime.ActivityRegistry {
 	registry := workflowruntime.NewActivityRegistry()
+	_ = registry.Register("ai.runtime.plan", s.executeAIPlannerActivity)
 	_ = registry.Register("legacy.fragment.generate", s.executeLegacyFragmentActivity)
 	_ = registry.Register("legacy.storyboard.branch", s.executeLegacyStoryboardBranchActivity)
 	_ = registry.Register("legacy.storyboard.generate", s.executeLegacyStoryboardActivity)
 	_ = registry.Register("storyboard.ensure_draft", s.executeEnsureStoryboardDraftActivity)
 	_ = registry.Register("storyboard.generate_bible_plan", s.executeGenerateStoryboardBiblePlanActivity)
 	_ = registry.Register("storyboard.generate_scene_plan", s.executeGenerateStoryboardScenePlanActivity)
+	_ = registry.Register("storyboard.review_content", s.executeReviewStoryboardContentActivity)
 	_ = registry.Register("storyboard.persist_content", s.executePersistStoryboardContentActivity)
 	_ = registry.Register("storyboard.await_content", s.executeAwaitStoryboardContentActivity)
 	_ = registry.Register("storyboard.ensure_images", s.executeEnsureStoryboardImagesActivity)
@@ -112,7 +114,9 @@ func (s *Service) StartWorkflow(ctx context.Context, in domain.WorkflowStartInpu
 	if strings.TrimSpace(in.Surface) == "" || strings.TrimSpace(in.Action) == "" {
 		return nil, errors.New("workflow surface and action are required")
 	}
-	if existing := s.findWorkflowByClientRequest(ctx, in); existing != nil {
+	if existing, err := s.findWorkflowByClientRequest(ctx, in); err != nil {
+		return nil, err
+	} else if existing != nil {
 		existing.Reused = true
 		return existing, nil
 	}
@@ -121,16 +125,49 @@ func (s *Service) StartWorkflow(ctx context.Context, in domain.WorkflowStartInpu
 		return nil, err
 	}
 	in.Input = enrichedInput
-	resolution, err := s.client.ResolveWorkflow(ctx, in.Surface, in.Action, in.TenantID, in.Input)
-	if err != nil {
+
+	// 固定版本试运行（已通过内部密钥鉴权）：与恢复路径一致，直接按
+	// ReleaseID 取不可变版本执行，不要求该版本是路由当前生效版本。
+	// 正常客户端仍走 resolve，保证只执行路由指向的版本。
+	var release *domain.WorkflowRelease
+	var selection map[string]any
+	if in.TestRun {
+		requested := strings.TrimSpace(in.ReleaseID)
+		if requested == "" {
+			return nil, errors.New("test run requires an explicit releaseId")
+		}
+		release, err = s.client.GetWorkflowRelease(ctx, requested)
+		if err != nil {
+			return nil, fmt.Errorf("load pinned release for test run: %w", err)
+		}
+		if release.Status != "released" && release.Status != "active" {
+			return nil, fmt.Errorf("test run release %s is not executable", requested)
+		}
+		selection = map[string]any{"testRun": true, "pinnedReleaseId": requested}
+	} else {
+		resolution, err := s.client.ResolveWorkflow(ctx, in.Surface, in.Action, in.TenantID, in.Input)
+		if err != nil {
+			return nil, err
+		}
+		if resolution == nil || strings.TrimSpace(resolution.Entry.Release.ID) == "" {
+			return nil, fmt.Errorf("no active workflow binding for %s/%s", in.Surface, in.Action)
+		}
+		release = &resolution.Entry.Release
+		if requested := strings.TrimSpace(in.ReleaseID); requested != "" && requested != release.ID {
+			return nil, fmt.Errorf("workflow release %s is not active for %s/%s", requested, in.Surface, in.Action)
+		}
+		selection = map[string]any{
+			"bindingId":           resolution.Entry.Binding.ID,
+			"routerVersion":       resolution.RouterVersion,
+			"profile":             resolution.Profile,
+			"routeReason":         resolution.RouteReason,
+			"confidence":          resolution.Confidence,
+			"fallback":            resolution.Fallback,
+			"candidateReleaseIds": append([]string(nil), resolution.CandidateIDs...),
+		}
+	}
+	if err := workflowruntime.ValidateJSONSchema("workflow input", release.Definition.InputSchema, in.Input); err != nil {
 		return nil, err
-	}
-	if resolution == nil || strings.TrimSpace(resolution.Entry.Release.ID) == "" {
-		return nil, fmt.Errorf("no active workflow binding for %s/%s", in.Surface, in.Action)
-	}
-	release := &resolution.Entry.Release
-	if requested := strings.TrimSpace(in.ReleaseID); requested != "" && requested != release.ID {
-		return nil, fmt.Errorf("workflow release %s is not active for %s/%s", requested, in.Surface, in.Action)
 	}
 	promptSnapshots, err := s.resolvePromptSnapshots(ctx, release.PromptBundle)
 	if err != nil {
@@ -147,15 +184,10 @@ func (s *Service) StartWorkflow(ctx context.Context, in domain.WorkflowStartInpu
 	input["workflowSurface"] = in.Surface
 	input["workflowAction"] = in.Action
 	input["workflowManagedStoryboardStages"] = workflowManagesStoryboardStages(release.Definition)
-	input["workflowSelection"] = map[string]any{
-		"bindingId":           resolution.Entry.Binding.ID,
-		"routerVersion":       resolution.RouterVersion,
-		"profile":             resolution.Profile,
-		"routeReason":         resolution.RouteReason,
-		"confidence":          resolution.Confidence,
-		"fallback":            resolution.Fallback,
-		"candidateReleaseIds": append([]string(nil), resolution.CandidateIDs...),
+	if in.TestRun {
+		input["workflowTestRun"] = true
 	}
+	input["workflowSelection"] = selection
 	run, err := s.store.CreateRun(ctx, domain.RunKindWorkflow, domain.AgentWorkflowRuntime, release.Name, input)
 	if err != nil {
 		return nil, err
@@ -213,17 +245,30 @@ func firstNonEmptyString(values ...string) string {
 	return ""
 }
 
-func (s *Service) findWorkflowByClientRequest(ctx context.Context, in domain.WorkflowStartInput) *domain.GenerationRun {
+func (s *Service) findWorkflowByClientRequest(ctx context.Context, in domain.WorkflowStartInput) (*domain.GenerationRun, error) {
 	requestID := strings.TrimSpace(in.ClientRequestID)
 	if requestID == "" {
-		return nil
+		return nil, nil
 	}
 	run, ok := s.store.FindRunByClientRequest(ctx, domain.RunKindWorkflow, userIDFromContext(ctx), requestID)
-	if ok && stringFromAny(run.Input["workflowSurface"]) == strings.TrimSpace(in.Surface) &&
-		stringFromAny(run.Input["workflowAction"]) == strings.TrimSpace(in.Action) {
-		return run
+	if !ok {
+		return nil, nil
 	}
-	return nil
+	if stringFromAny(run.Input["workflowSurface"]) != strings.TrimSpace(in.Surface) ||
+		stringFromAny(run.Input["workflowAction"]) != strings.TrimSpace(in.Action) ||
+		workflowTargetIdentity(run.Input) != workflowTargetIdentity(in.Input) {
+		return nil, fmt.Errorf("clientRequestId %s is already bound to a different workflow target", requestID)
+	}
+	return run, nil
+}
+
+func workflowTargetIdentity(input map[string]any) string {
+	for _, key := range []string{"draftStoryboardId", "storyboardId", "targetDraftFragmentId", "fragmentId", "parentStoryboardId", "parentFragmentId", "parentId", "storyId"} {
+		if value := stringFromAny(input[key]); value != "" {
+			return key + ":" + value
+		}
+	}
+	return ""
 }
 
 func workflowManagesStoryboardStages(definition domain.WorkflowDefinition) bool {

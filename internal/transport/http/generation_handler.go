@@ -18,6 +18,7 @@ import (
 
 // GenerationHandler serves non-chat generation and RL artifact APIs.
 type GenerationHandler struct {
+	internalKey string
 	gen      *generation.Service
 	client   *grapery_client.Client
 	store    runstore.Store
@@ -25,14 +26,18 @@ type GenerationHandler struct {
 	eval     *eval.Harness
 }
 
-func NewGenerationHandler(gen *generation.Service, store runstore.Store, artifactDir string, _ config.AgentAuthConfig) *GenerationHandler {
+func NewGenerationHandler(gen *generation.Service, store runstore.Store, artifactDir string, authCfg config.AgentAuthConfig) *GenerationHandler {
 	return &GenerationHandler{
-		gen:      gen,
-		store:    store,
-		exporter: artifact.NewExporter(store, artifactDir),
-		eval:     eval.NewHarness(gen, store),
+		gen:          gen,
+		store:        store,
+		exporter:     artifact.NewExporter(store, artifactDir),
+		eval:         eval.NewHarness(gen, store),
+		internalKey:  strings.TrimSpace(authCfg.InternalAPIKey),
 	}
 }
+
+// authDepsInternalAPIKey 返回配置的内部服务密钥；未配置时固定版本试运行一律拒绝。
+func (h *GenerationHandler) authDepsInternalAPIKey() string { return h.internalKey }
 
 func (h *GenerationHandler) RegisterRoutes(r *gin.Engine, auth agentAuthDeps, client *grapery_client.Client) {
 	h.client = client
@@ -185,6 +190,14 @@ func (h *GenerationHandler) startWorkflow(c *gin.Context) {
 	if err := c.ShouldBindJSON(&in); err != nil {
 		h.fail(c, http.StatusBadRequest, err.Error())
 		return
+	}
+	// 固定版本试运行只接受内部服务调用：请求必须携带与服务端一致的
+	// X-Internal-Api-Key，防止客户端伪造 testRun 标记绕过路由校验。
+	if in.TestRun {
+		if h.authDepsInternalAPIKey() == "" || strings.TrimSpace(c.GetHeader("X-Internal-Api-Key")) != h.authDepsInternalAPIKey() {
+			abortUnauthorized(c, "test run requires internal service credentials")
+			return
+		}
 	}
 	if !workflowScopeMatches(c, in.Surface) {
 		abortUnauthorized(c, "agent token cannot start this workflow surface")

@@ -76,6 +76,11 @@ func (s *Service) executeGenerateStoryboardScenePlanActivity(ctx context.Context
 	return s.executeStoryboardTextStage(ctx, input, "scene_plan", "scene_plan")
 }
 
+func (s *Service) executeReviewStoryboardContentActivity(ctx context.Context, input map[string]any, config map[string]any) (map[string]any, error) {
+	input = applyWorkflowInputDefaults(input, config)
+	return s.executeStoryboardTextStage(ctx, input, "review_content", "quality_review")
+}
+
 func (s *Service) executePersistStoryboardContentActivity(ctx context.Context, input map[string]any, config map[string]any) (map[string]any, error) {
 	input = applyWorkflowInputDefaults(input, config)
 	return s.executeStoryboardTextStage(ctx, input, "persist_content", "consistency_audit")
@@ -114,6 +119,7 @@ func (s *Service) executeStoryboardTextStage(ctx context.Context, input map[stri
 	return map[string]any{
 		"storyboardId": result.StoryboardID, "generationRunId": result.GenerationRunID,
 		"stage": result.Stage, "progress": result.Progress, "alreadyComplete": result.AlreadyComplete,
+		"issueCount": result.IssueCount, "repairApplied": result.RepairApplied,
 	}, nil
 }
 

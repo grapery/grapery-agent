@@ -142,4 +142,7 @@ type WorkflowStartInput struct {
 	ReleaseID       string         `json:"releaseId,omitempty"`
 	ClientRequestID string         `json:"clientRequestId,omitempty"`
 	Input           map[string]any `json:"input"`
+	// TestRun 标记一次固定版本验证运行：绕过「必须当前生效」的路由校验，
+	// 直接执行 ReleaseID 指向的不可变版本。仅接受携带内部服务密钥的请求。
+	TestRun bool `json:"testRun,omitempty"`
 }

@@ -14,6 +14,20 @@ import (
 
 type Activity func(ctx context.Context, input map[string]any, config map[string]any) (map[string]any, error)
 
+type activityExecutionKey struct{}
+
+// ActivityExecution identifies the durable node attempt currently invoking an
+// Activity. Activities can use it for audit records and provider idempotency.
+type ActivityExecution struct {
+	NodeID  string
+	Attempt int
+}
+
+func ActivityExecutionFromContext(ctx context.Context) (ActivityExecution, bool) {
+	execution, ok := ctx.Value(activityExecutionKey{}).(ActivityExecution)
+	return execution, ok
+}
+
 type ActivityRegistry struct {
 	mu         sync.RWMutex
 	activities map[string]Activity
@@ -158,6 +172,14 @@ func ExecuteWithOptions(ctx context.Context, compiled *CompiledWorkflow, registr
 		return nil, errors.New("compiled workflow and activity registry are required")
 	}
 	result := &ExecutionResult{NodeOutputs: cloneNodeOutputs(options.NodeOutputs)}
+	effectiveInput := cloneMap(input)
+	for _, batch := range compiled.Batches {
+		for _, node := range batch {
+			if output, completed := result.NodeOutputs[node.ID]; completed {
+				applyWorkflowInputPatch(effectiveInput, node.Config, output)
+			}
+		}
+	}
 	for _, batch := range compiled.Batches {
 		// Runtime v1 executes deterministically. Parallel scheduling is introduced
 		// only after node attempts/checkpoints are wired to the durable run store.
@@ -169,7 +191,7 @@ func ExecuteWithOptions(ctx context.Context, compiled *CompiledWorkflow, registr
 			if !ok {
 				return nil, fmt.Errorf("activity unavailable at execution: %s", node.Activity)
 			}
-			nodeInput := mergeNodeInput(input, node.DependsOn, result.NodeOutputs)
+			nodeInput := mergeNodeInput(effectiveInput, node.DependsOn, result.NodeOutputs)
 			maxAttempts := compiled.Release.Policies.MaxAttempts
 			if maxAttempts <= 0 {
 				maxAttempts = 1
@@ -186,7 +208,13 @@ func ExecuteWithOptions(ctx context.Context, compiled *CompiledWorkflow, registr
 						return nil, fmt.Errorf("checkpoint workflow node %s attempt %d: %w", node.ID, attempt, err)
 					}
 				}
-				output, err = activity(ctx, nodeInput, node.Config)
+				activityCtx := context.WithValue(ctx, activityExecutionKey{}, ActivityExecution{NodeID: node.ID, Attempt: attempt})
+				output, err = activity(activityCtx, nodeInput, node.Config)
+				if err == nil {
+					if outputSchema, ok := node.Config["outputSchema"].(map[string]any); ok {
+						err = ValidateJSONSchema("workflow node "+node.ID+" output", outputSchema, output)
+					}
+				}
 				if err == nil {
 					break
 				}
@@ -212,6 +240,7 @@ func ExecuteWithOptions(ctx context.Context, compiled *CompiledWorkflow, registr
 				}
 			}
 			result.NodeOutputs[node.ID] = output
+			applyWorkflowInputPatch(effectiveInput, node.Config, output)
 			if options.AfterNode != nil {
 				if err := options.AfterNode(node, cloneNodeOutputs(result.NodeOutputs)); err != nil {
 					return nil, fmt.Errorf("checkpoint workflow node %s: %w", node.ID, err)
@@ -220,6 +249,42 @@ func ExecuteWithOptions(ctx context.Context, compiled *CompiledWorkflow, registr
 		}
 	}
 	return result, nil
+}
+
+// applyWorkflowInputPatch lets a bounded planning node influence later
+// activities without changing the immutable graph. The release must explicitly
+// allow every key, so arbitrary activity output cannot mutate workflow input.
+func applyWorkflowInputPatch(input, config, output map[string]any) {
+	patch, ok := output["workflowInputPatch"].(map[string]any)
+	if !ok || len(patch) == 0 {
+		return
+	}
+	allowed := map[string]bool{}
+	switch values := config["inputPatchAllowlist"].(type) {
+	case []string:
+		for _, key := range values {
+			allowed[strings.TrimSpace(key)] = true
+		}
+	case []any:
+		for _, value := range values {
+			if key, ok := value.(string); ok {
+				allowed[strings.TrimSpace(key)] = true
+			}
+		}
+	}
+	for key, value := range patch {
+		if allowed[key] && value != nil {
+			input[key] = value
+		}
+	}
+}
+
+func cloneMap(input map[string]any) map[string]any {
+	out := make(map[string]any, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
 }
 
 func workflowRetryDelay(nextAttempt int) time.Duration {

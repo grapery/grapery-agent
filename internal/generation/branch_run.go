@@ -146,18 +146,20 @@ func (s *Service) executeBranchBatch(ctx context.Context, runID string, in domai
 		batch.Candidates = append(batch.Candidates, cand)
 	}
 
-	output := map[string]any{"candidateCount": len(batch.Candidates), "tokensUsed": totalTokens}
-	_ = s.finishRun(ctx, runID, domain.RunStatusSucceeded, output, domain.ContentRef{}, totalTokens, "")
-	_ = s.store.UpdateRun(ctx, runID, func(r *domain.GenerationRun) {
-		r.Output["branchBatch"] = batch
-		ids := make([]string, 0, len(batch.Candidates))
-		for _, c := range batch.Candidates {
-			if c.StoryboardID != "" {
-				ids = append(ids, c.StoryboardID)
-			}
+	// branchBatch 与内容引用必须在 finishRun 的同一次写入中持久化：
+	// 终态运行在 GraperyStore.UpdateRun 中不再回写，事后追加只会留在内存。
+	output := map[string]any{"candidateCount": len(batch.Candidates), "tokensUsed": totalTokens, "branchBatch": batch}
+	branchIDs := make([]string, 0, len(batch.Candidates))
+	for _, c := range batch.Candidates {
+		if c.StoryboardID != "" {
+			branchIDs = append(branchIDs, c.StoryboardID)
 		}
-		r.ContentIDs.BranchIDs = ids
-	})
+	}
+	content := domain.ContentRef{BranchIDs: branchIDs}
+	if len(branchIDs) > 0 {
+		content.StoryboardID = branchIDs[0]
+	}
+	_ = s.finishRun(ctx, runID, domain.RunStatusSucceeded, output, content, totalTokens, "")
 
 	_ = s.store.AppendArtifact(ctx, &domain.RLArtifact{
 		Type:        domain.ArtifactTypeGenerationTrace,

@@ -178,10 +178,32 @@ func TestFindWorkflowByClientRequestAvoidsReroutingRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := service.findWorkflowByClientRequest(context.Background(), domain.WorkflowStartInput{
+	got, err := service.findWorkflowByClientRequest(context.Background(), domain.WorkflowStartInput{
 		Surface: "voyager.storyboard", Action: "generate", ClientRequestID: "request-1",
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got == nil || got.ID != run.ID {
 		t.Fatalf("retry did not reuse canonical workflow: %+v", got)
+	}
+}
+
+func TestFindWorkflowByClientRequestRejectsDifferentTarget(t *testing.T) {
+	store := runstore.NewMemoryStore()
+	service := NewService(nil, store, "", "", false)
+	_, err := store.CreateRun(context.Background(), domain.RunKindWorkflow, domain.AgentWorkflowRuntime, "storyboard", map[string]any{
+		"clientRequestId": "request-1", "workflowSurface": "voyager.storyboard", "workflowAction": "generate",
+		"parentStoryboardId": "parent-a",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.findWorkflowByClientRequest(context.Background(), domain.WorkflowStartInput{
+		Surface: "voyager.storyboard", Action: "generate", ClientRequestID: "request-1",
+		Input: map[string]any{"parentStoryboardId": "parent-b"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "different workflow target") {
+		t.Fatalf("expected idempotency conflict, got %v", err)
 	}
 }

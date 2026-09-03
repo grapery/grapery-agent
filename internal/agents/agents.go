@@ -16,6 +16,8 @@ import (
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/components/retriever"
+	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 )
 
@@ -29,28 +31,28 @@ type AgentRegistry struct {
 }
 
 // NewRegistry 创建所有 Agent
-func NewRegistry(ctx context.Context, chatModel model.BaseChatModel, textModel *graperymodel.HuoshanTextModel, imageModel *graperymodel.HuoshanImageModel, videoModel *graperymodel.HuoshanVideoModel, client *grapery_client.Client, maxIterations int) (*AgentRegistry, error) {
-	fragmentAgent, err := newFragmentAgent(ctx, chatModel, client, maxIterations)
+func NewRegistry(ctx context.Context, chatModel model.BaseChatModel, textModel *graperymodel.HuoshanTextModel, imageModel *graperymodel.HuoshanImageModel, videoModel *graperymodel.HuoshanVideoModel, client *grapery_client.Client, maxIterations int, knowledge retriever.Retriever, knowledgeTopK int) (*AgentRegistry, error) {
+	fragmentAgent, err := newFragmentAgent(ctx, chatModel, client, maxIterations, knowledge, knowledgeTopK)
 	if err != nil {
 		return nil, fmt.Errorf("create fragment agent: %w", err)
 	}
 
-	fragmentPanelAgent, err := newFragmentPanelAgent(ctx, chatModel, client, maxIterations)
+	fragmentPanelAgent, err := newFragmentPanelAgent(ctx, chatModel, client, maxIterations, knowledge, knowledgeTopK)
 	if err != nil {
 		return nil, fmt.Errorf("create fragment panel agent: %w", err)
 	}
 
-	characterAgent, err := newCharacterAgent(ctx, chatModel, client, maxIterations)
+	characterAgent, err := newCharacterAgent(ctx, chatModel, client, maxIterations, knowledge, knowledgeTopK)
 	if err != nil {
 		return nil, fmt.Errorf("create character agent: %w", err)
 	}
 
-	storyboardAgent, err := newStoryboardAgent(ctx, chatModel, textModel, imageModel, videoModel, client, maxIterations)
+	storyboardAgent, err := newStoryboardAgent(ctx, chatModel, textModel, imageModel, videoModel, client, maxIterations, knowledge, knowledgeTopK)
 	if err != nil {
 		return nil, fmt.Errorf("create storyboard agent: %w", err)
 	}
 
-	branchAgent, err := newBranchExplorerAgent(ctx, chatModel, client, maxIterations)
+	branchAgent, err := newBranchExplorerAgent(ctx, chatModel, client, maxIterations, knowledge, knowledgeTopK)
 	if err != nil {
 		return nil, fmt.Errorf("create branch explorer agent: %w", err)
 	}
@@ -64,16 +66,15 @@ func NewRegistry(ctx context.Context, chatModel model.BaseChatModel, textModel *
 	}, nil
 }
 
-func newFragmentAgent(ctx context.Context, chatModel model.BaseChatModel, client *grapery_client.Client, maxIter int) (*adk.ChatModelAgent, error) {
+func newFragmentAgent(ctx context.Context, chatModel model.BaseChatModel, client *grapery_client.Client, maxIter int, knowledge retriever.Retriever, knowledgeTopK int) (*adk.ChatModelAgent, error) {
 	tools, err := fragment.AllTools(client)
 	if err != nil {
 		return nil, fmt.Errorf("create fragment tools: %w", err)
 	}
-	fbTool, err := common.NewAskUserFeedbackTool()
+	tools, err = appendCommonTools(tools, knowledge, knowledgeTopK)
 	if err != nil {
-		return nil, fmt.Errorf("create feedback tool: %w", err)
+		return nil, err
 	}
-	tools = append(tools, fbTool)
 
 	return adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:          "FragmentCreator",
@@ -85,16 +86,15 @@ func newFragmentAgent(ctx context.Context, chatModel model.BaseChatModel, client
 	})
 }
 
-func newFragmentPanelAgent(ctx context.Context, chatModel model.BaseChatModel, client *grapery_client.Client, maxIter int) (*adk.ChatModelAgent, error) {
+func newFragmentPanelAgent(ctx context.Context, chatModel model.BaseChatModel, client *grapery_client.Client, maxIter int, knowledge retriever.Retriever, knowledgeTopK int) (*adk.ChatModelAgent, error) {
 	tools, err := fragment_panel.AllTools(client)
 	if err != nil {
 		return nil, fmt.Errorf("create fragment panel tools: %w", err)
 	}
-	fbTool, err := common.NewAskUserFeedbackTool()
+	tools, err = appendCommonTools(tools, knowledge, knowledgeTopK)
 	if err != nil {
-		return nil, fmt.Errorf("create feedback tool: %w", err)
+		return nil, err
 	}
-	tools = append(tools, fbTool)
 
 	return adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:          "FragmentPanelCreator",
@@ -106,16 +106,15 @@ func newFragmentPanelAgent(ctx context.Context, chatModel model.BaseChatModel, c
 	})
 }
 
-func newCharacterAgent(ctx context.Context, chatModel model.BaseChatModel, client *grapery_client.Client, maxIter int) (*adk.ChatModelAgent, error) {
+func newCharacterAgent(ctx context.Context, chatModel model.BaseChatModel, client *grapery_client.Client, maxIter int, knowledge retriever.Retriever, knowledgeTopK int) (*adk.ChatModelAgent, error) {
 	tools, err := character.AllTools(client)
 	if err != nil {
 		return nil, fmt.Errorf("create character tools: %w", err)
 	}
-	fbTool, err := common.NewAskUserFeedbackTool()
+	tools, err = appendCommonTools(tools, knowledge, knowledgeTopK)
 	if err != nil {
-		return nil, fmt.Errorf("create feedback tool: %w", err)
+		return nil, err
 	}
-	tools = append(tools, fbTool)
 
 	return adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:          "CharacterDesigner",
@@ -127,16 +126,15 @@ func newCharacterAgent(ctx context.Context, chatModel model.BaseChatModel, clien
 	})
 }
 
-func newStoryboardAgent(ctx context.Context, chatModel model.BaseChatModel, textModel *graperymodel.HuoshanTextModel, imageModel *graperymodel.HuoshanImageModel, videoModel *graperymodel.HuoshanVideoModel, client *grapery_client.Client, maxIter int) (*adk.ChatModelAgent, error) {
+func newStoryboardAgent(ctx context.Context, chatModel model.BaseChatModel, textModel *graperymodel.HuoshanTextModel, imageModel *graperymodel.HuoshanImageModel, videoModel *graperymodel.HuoshanVideoModel, client *grapery_client.Client, maxIter int, knowledge retriever.Retriever, knowledgeTopK int) (*adk.ChatModelAgent, error) {
 	tools, err := storyboard.AllTools(client)
 	if err != nil {
 		return nil, fmt.Errorf("create storyboard tools: %w", err)
 	}
-	fbTool, err := common.NewAskUserFeedbackTool()
+	tools, err = appendCommonTools(tools, knowledge, knowledgeTopK)
 	if err != nil {
-		return nil, fmt.Errorf("create feedback tool: %w", err)
+		return nil, err
 	}
-	tools = append(tools, fbTool)
 
 	return adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:          "StoryboardDirector",
@@ -148,16 +146,15 @@ func newStoryboardAgent(ctx context.Context, chatModel model.BaseChatModel, text
 	})
 }
 
-func newBranchExplorerAgent(ctx context.Context, chatModel model.BaseChatModel, client *grapery_client.Client, maxIter int) (*adk.ChatModelAgent, error) {
+func newBranchExplorerAgent(ctx context.Context, chatModel model.BaseChatModel, client *grapery_client.Client, maxIter int, knowledge retriever.Retriever, knowledgeTopK int) (*adk.ChatModelAgent, error) {
 	tools, err := branch.AllTools(client)
 	if err != nil {
 		return nil, fmt.Errorf("create branch tools: %w", err)
 	}
-	fbTool, err := common.NewAskUserFeedbackTool()
+	tools, err = appendCommonTools(tools, knowledge, knowledgeTopK)
 	if err != nil {
-		return nil, fmt.Errorf("create feedback tool: %w", err)
+		return nil, err
 	}
-	tools = append(tools, fbTool)
 
 	return adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:          "BranchExplorer",
@@ -167,4 +164,20 @@ func newBranchExplorerAgent(ctx context.Context, chatModel model.BaseChatModel, 
 		ToolsConfig:   adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: tools}},
 		MaxIterations: maxIter,
 	})
+}
+
+func appendCommonTools(tools []tool.BaseTool, knowledge retriever.Retriever, knowledgeTopK int) ([]tool.BaseTool, error) {
+	feedback, err := common.NewAskUserFeedbackTool()
+	if err != nil {
+		return nil, fmt.Errorf("create feedback tool: %w", err)
+	}
+	tools = append(tools, feedback)
+	if knowledge != nil {
+		search, err := common.NewKnowledgeSearchTool(knowledge, knowledgeTopK)
+		if err != nil {
+			return nil, fmt.Errorf("create knowledge search tool: %w", err)
+		}
+		tools = append(tools, search)
+	}
+	return tools, nil
 }

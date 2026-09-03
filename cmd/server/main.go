@@ -10,6 +10,7 @@ import (
 	"github.com/grapestree/fgrapery/grapery-agent/internal/config"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/generation"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/grapery_client"
+	"github.com/grapestree/fgrapery/grapery-agent/internal/knowledge"
 	graperymodel "github.com/grapestree/fgrapery/grapery-agent/internal/model"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/runstore"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/transport/http"
@@ -43,7 +44,11 @@ func main() {
 
 	// 4. 创建 Agent Registry
 	ctx := context.Background()
-	registry, err := agents.NewRegistry(ctx, chatModel, textModel, imageModel, videoModel, client, cfg.Eino.MaxIterations)
+	knowledgeRetriever, err := knowledge.NewLocalRetriever(cfg.Eino.KnowledgeDir, cfg.Eino.KnowledgeTopK)
+	if err != nil {
+		log.Fatalf("Failed to initialize knowledge retriever: %v", err)
+	}
+	registry, err := agents.NewRegistry(ctx, chatModel, textModel, imageModel, videoModel, client, cfg.Eino.MaxIterations, knowledgeRetriever, cfg.Eino.KnowledgeTopK)
 	if err != nil {
 		log.Fatalf("Failed to create agent registry: %v", err)
 	}
@@ -61,6 +66,7 @@ func main() {
 		log.Printf("WARNING: GRAPERY_API_KEY is empty; generation runs and checkpoints are not durable")
 	}
 	genSvc := generation.NewService(client, runStore, cfg.Eino.TextProvider, cfg.Eino.TextModel, cfg.AgentAuth.ExecFragmentPanelEnabled)
+	genSvc.SetWorkflowPlannerModel(chatModel)
 	if cfg.Grapery.APIKey != "" {
 		if err := genSvc.ResumeWorkflows(ctx); err != nil {
 			log.Printf("workflow recovery scan failed: %v", err)
@@ -69,7 +75,7 @@ func main() {
 	genHandler := http.NewGenerationHandler(genSvc, runStore, cfg.Artifact.ExportDir, cfg.AgentAuth)
 
 	// 6. 创建 HTTP Handler
-	handler := http.NewHandler(registry, client, checkpoint, genHandler, cfg.AgentAuth)
+	handler := http.NewHandler(registry, client, checkpoint, genHandler, cfg.AgentAuth, cfg.Eino.SessionMaxMessages)
 
 	// 7. 启动 HTTP 服务
 	r := gin.Default()
