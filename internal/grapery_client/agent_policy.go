@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -534,6 +535,15 @@ func (c *Client) doJSON(req *http.Request, dest interface{}) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+		var envelope struct {
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(body, &envelope) == nil {
+			if message := strings.TrimSpace(envelope.Message); message != "" {
+				return fmt.Errorf("grapery policy api %s: status %d: %s", req.URL.Path, resp.StatusCode, message)
+			}
+		}
 		return fmt.Errorf("grapery policy api %s: status %d", req.URL.Path, resp.StatusCode)
 	}
 	return json.NewDecoder(resp.Body).Decode(dest)
