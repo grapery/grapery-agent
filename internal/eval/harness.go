@@ -11,7 +11,7 @@ import (
 	"github.com/grapestree/fgrapery/grapery-agent/internal/runstore"
 )
 
-// Harness runs offline evaluation against generation runs.
+// Harness runs explicitly requested generation trials and grades their durable outcomes.
 type Harness struct {
 	gen   *generation.Service
 	store runstore.Store
@@ -23,7 +23,20 @@ func NewHarness(gen *generation.Service, store runstore.Store) *Harness {
 
 // RunEval executes eval for the given agent version and optional seed filter.
 func (h *Harness) RunEval(ctx context.Context, agent domain.AgentVersion, seedIDs []string, waitSec int) (*domain.EvalRecord, error) {
-	seeds := DefaultSeeds()
+	return h.RunEvalWithSeeds(ctx, agent, DefaultSeeds(), seedIDs, waitSec)
+}
+
+// RunEvalWithSeeds accepts explicit fixture IDs. Running it calls real generators; unit tests only exercise graders.
+func (h *Harness) RunEvalWithSeeds(ctx context.Context, agent domain.AgentVersion, seeds []Seed, seedIDs []string, waitSec int) (*domain.EvalRecord, error) {
+	if kind := seedKindForAgent(agent); kind != "" {
+		filtered := make([]Seed, 0, len(seeds))
+		for _, seed := range seeds {
+			if seed.Kind == kind {
+				filtered = append(filtered, seed)
+			}
+		}
+		seeds = filtered
+	}
 	if len(seedIDs) > 0 {
 		filter := map[string]bool{}
 		for _, id := range seedIDs {
@@ -48,6 +61,7 @@ func (h *Harness) RunEval(ctx context.Context, agent domain.AgentVersion, seedID
 	}
 	var totalTools, failedTools int64
 	var totalDur int64
+	var successful, ready, graded int
 
 	for _, seed := range seeds {
 		run, err := h.startSeed(ctx, seed)
@@ -68,6 +82,17 @@ func (h *Harness) RunEval(ctx context.Context, agent domain.AgentVersion, seedID
 				failedTools++
 			}
 		}
+		grade := GradeCreationOutcome(seed, final)
+		graded++
+		if final.Status == domain.RunStatusSucceeded {
+			successful++
+		}
+		if grade.Ready {
+			ready++
+		}
+		for _, issue := range grade.Issues {
+			record.Notes += fmt.Sprintf("seed %s outcome: %s; ", seed.ID, issue)
+		}
 		record.TotalTokens += final.TokensUsed
 	}
 
@@ -75,6 +100,11 @@ func (h *Harness) RunEval(ctx context.Context, agent domain.AgentVersion, seedID
 		record.ToolFailureRate = float64(failedTools) / float64(totalTools)
 		record.AvgToolDurationMs = float64(totalDur) / float64(totalTools)
 	}
+	record.Metrics["seeds_requested"] = float64(len(seeds))
+	record.Metrics["outcomes_graded"] = float64(graded)
+	record.Metrics["run_success_rate"] = float64(successful) / float64(len(seeds))
+	record.Metrics["artifact_ready_rate"] = float64(ready) / float64(len(seeds))
+	record.Metrics["failed_or_incomplete_seeds"] = float64(len(seeds) - successful)
 	record.Metrics["seeds_executed"] = float64(len(record.RunIDs))
 	record.Metrics["tool_calls"] = float64(totalTools)
 	record.Metrics["tool_failures"] = float64(failedTools)
@@ -83,7 +113,9 @@ func (h *Harness) RunEval(ctx context.Context, agent domain.AgentVersion, seedID
 		Type: domain.ArtifactTypeEvalResult,
 		Eval: record,
 	}
-	_ = h.store.AppendArtifact(ctx, art)
+	if err := h.store.AppendArtifact(ctx, art); err != nil {
+		return record, fmt.Errorf("persist evaluation: %w", err)
+	}
 	return record, nil
 }
 
@@ -119,6 +151,11 @@ func (h *Harness) startSeed(ctx context.Context, seed Seed) (*domain.GenerationR
 			RawInput:   seed.Prompt,
 			SceneCount: 3,
 		})
+	case "character":
+		if seed.StoryID == "" {
+			return nil, fmt.Errorf("character seed requires storyId")
+		}
+		return h.gen.StartCharacter(ctx, domain.CharacterGenerateInput{StoryID: seed.StoryID, Prompt: seed.Prompt, UseAsyncTask: true, CreateRecord: true, GeneratePortrait: true})
 	case "branch":
 		if seed.ParentID == "" {
 			return nil, fmt.Errorf("branch seed requires parentStoryboardId")
@@ -162,4 +199,23 @@ func BranchDiversityScore(batch *domain.BranchBatchResult) float64 {
 		seen[c.Strategy] = true
 	}
 	return float64(len(seen)) / float64(len(batch.Candidates))
+}
+
+func seedKindForAgent(agent domain.AgentVersion) string {
+	switch agent {
+	case domain.AgentFragmentCreator, domain.AgentFragmentComicDirector:
+		return "fragment"
+	case domain.AgentFragmentPanelCreator:
+		return "fragment_panel"
+	case domain.AgentStoryboardDirector:
+		return "storyboard"
+	case domain.AgentCharacterDesigner:
+		return "character"
+	case domain.AgentStoryGenerator:
+		return "story"
+	case domain.AgentBranchExplorer:
+		return "branch"
+	default:
+		return ""
+	}
 }

@@ -12,21 +12,24 @@ import (
 	"time"
 
 	"github.com/grapestree/fgrapery/grapery-agent/internal/domain"
+	"github.com/grapestree/fgrapery/grapery-agent/internal/grapery_client"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/runstore"
 	workflowruntime "github.com/grapestree/fgrapery/grapery-agent/internal/workflow"
 )
 
-const workflowCheckpointVersion = 3
+const workflowCheckpointVersion = 4
 
 type workflowCheckpoint struct {
-	Version         int                                     `json:"version"`
-	ReleaseID       string                                  `json:"releaseId"`
-	PromptSnapshots map[string]domain.PromptTemplateVersion `json:"promptSnapshots,omitempty"`
-	Input           map[string]any                          `json:"input"`
-	NodeOutputs     map[string]map[string]any               `json:"nodeOutputs"`
-	NodeAttempts    map[string]int                          `json:"nodeAttempts,omitempty"`
-	StartedAt       time.Time                               `json:"startedAt"`
-	UpdatedAt       time.Time                               `json:"updatedAt"`
+	Version            int                                     `json:"version"`
+	ReleaseID          string                                  `json:"releaseId"`
+	CreativeControls   *domain.CreativeControls                `json:"creativeControls,omitempty"`
+	EngineeringRelease *domain.WorkflowRelease                 `json:"engineeringRelease,omitempty"`
+	PromptSnapshots    map[string]domain.PromptTemplateVersion `json:"promptSnapshots,omitempty"`
+	Input              map[string]any                          `json:"input"`
+	NodeOutputs        map[string]map[string]any               `json:"nodeOutputs"`
+	NodeAttempts       map[string]int                          `json:"nodeAttempts,omitempty"`
+	StartedAt          time.Time                               `json:"startedAt"`
+	UpdatedAt          time.Time                               `json:"updatedAt"`
 }
 
 type recoveredRunClaimer interface {
@@ -41,6 +44,7 @@ func (s *Service) newWorkflowActivityRegistry() *workflowruntime.ActivityRegistr
 	registry := workflowruntime.NewActivityRegistry()
 	_ = registry.Register("ai.runtime.plan", s.executeAIPlannerActivity)
 	_ = registry.Register("legacy.fragment.generate", s.executeLegacyFragmentActivity)
+	_ = registry.Register("legacy.character.generate", s.executeLegacyCharacterActivity)
 	_ = registry.Register("legacy.storyboard.branch", s.executeLegacyStoryboardBranchActivity)
 	_ = registry.Register("legacy.storyboard.generate", s.executeLegacyStoryboardActivity)
 	_ = registry.Register("storyboard.ensure_draft", s.executeEnsureStoryboardDraftActivity)
@@ -111,6 +115,9 @@ func (s *Service) executeLegacyFragmentActivity(ctx context.Context, input map[s
 }
 
 func (s *Service) StartWorkflow(ctx context.Context, in domain.WorkflowStartInput) (*domain.GenerationRun, error) {
+	if err := rejectWorkflowOverrides(in.Input); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(in.Surface) == "" || strings.TrimSpace(in.Action) == "" {
 		return nil, errors.New("workflow surface and action are required")
 	}
@@ -147,7 +154,14 @@ func (s *Service) StartWorkflow(ctx context.Context, in domain.WorkflowStartInpu
 	} else {
 		resolution, err := s.client.ResolveWorkflow(ctx, in.Surface, in.Action, in.TenantID, in.Input)
 		if err != nil {
-			return nil, err
+			if !errors.Is(err, grapery_client.ErrNoActiveWorkflow) {
+				return nil, err
+			}
+			fallback, fallbackErr := engineeringWorkflow(in.Surface, in.Action)
+			if fallbackErr != nil {
+				return nil, err
+			}
+			resolution = &domain.WorkflowResolution{Entry: domain.WorkflowCatalogEntry{Release: *fallback}, RouterVersion: "engineering.v1", RouteReason: "no_active_workflow", Fallback: true, Confidence: 1}
 		}
 		if resolution == nil || strings.TrimSpace(resolution.Entry.Release.ID) == "" {
 			return nil, fmt.Errorf("no active workflow binding for %s/%s", in.Surface, in.Action)
@@ -166,12 +180,19 @@ func (s *Service) StartWorkflow(ctx context.Context, in domain.WorkflowStartInpu
 			"candidateReleaseIds": append([]string(nil), resolution.CandidateIDs...),
 		}
 	}
+	controls, err := creativeControlsFromRelease(release)
+	if err != nil {
+		return nil, err
+	}
 	if err := workflowruntime.ValidateJSONSchema("workflow input", release.Definition.InputSchema, in.Input); err != nil {
 		return nil, err
 	}
-	promptSnapshots, err := s.resolvePromptSnapshots(ctx, release.PromptBundle)
-	if err != nil {
-		return nil, err
+	promptSnapshots := map[string]domain.PromptTemplateVersion{}
+	if !managedCreationSurface(in.Surface) {
+		promptSnapshots, err = s.resolvePromptSnapshots(ctx, release.PromptBundle)
+		if err != nil {
+			return nil, err
+		}
 	}
 	attachPromptSnapshots(release, promptSnapshots)
 	compiled, err := workflowruntime.Compile(release, s.workflowActivities)
@@ -179,6 +200,7 @@ func (s *Service) StartWorkflow(ctx context.Context, in domain.WorkflowStartInpu
 		return nil, err
 	}
 	input := cloneWorkflowInput(in.Input)
+	input["creativeControls"] = controls
 	input["clientRequestId"] = in.ClientRequestID
 	input["workflowReleaseId"] = release.ID
 	input["workflowSurface"] = in.Surface
@@ -209,7 +231,14 @@ func (s *Service) StartWorkflow(ctx context.Context, in domain.WorkflowStartInpu
 	if err != nil {
 		return nil, err
 	}
-	state := &workflowCheckpoint{Version: workflowCheckpointVersion, ReleaseID: release.ID, PromptSnapshots: clonePromptSnapshots(promptSnapshots), Input: cloneWorkflowInput(input), NodeOutputs: map[string]map[string]any{}, NodeAttempts: map[string]int{}, StartedAt: time.Now().UTC()}
+	state := &workflowCheckpoint{Version: workflowCheckpointVersion, ReleaseID: release.ID, CreativeControls: &controls, PromptSnapshots: clonePromptSnapshots(promptSnapshots), Input: cloneWorkflowInput(input), NodeOutputs: map[string]map[string]any{}, NodeAttempts: map[string]int{}, StartedAt: time.Now().UTC()}
+	if isEngineeringWorkflow(release) {
+		frozen, err := frozenEngineeringWorkflow(release)
+		if err != nil {
+			return nil, err
+		}
+		state.EngineeringRelease = frozen
+	}
 	if err := s.saveWorkflowCheckpoint(ctx, checkpointID, state); err != nil {
 		_ = s.finishRun(ctx, run.ID, domain.RunStatusFailed, nil, domain.ContentRef{}, 0, "initialize workflow checkpoint: "+err.Error())
 		return nil, err
@@ -291,6 +320,21 @@ func workflowManagesStoryboardStages(definition domain.WorkflowDefinition) bool 
 }
 
 func (s *Service) executeWorkflow(ctx context.Context, runID string, compiled *workflowruntime.CompiledWorkflow, state *workflowCheckpoint) {
+	if state.CreativeControls == nil {
+		controls, err := creativeControlsFromRelease(compiled.Release)
+		if err != nil {
+			_ = s.finishRun(ctx, runID, domain.RunStatusFailed, nil, domain.ContentRef{}, 0, err.Error())
+			return
+		}
+		state.CreativeControls = &controls
+	}
+	if err := state.CreativeControls.Validate(); err != nil {
+		_ = s.finishRun(ctx, runID, domain.RunStatusFailed, nil, domain.ContentRef{}, 0, err.Error())
+		return
+	}
+	ctx = withCreativeControls(ctx, *state.CreativeControls)
+	state.Input["creativeControls"] = *state.CreativeControls
+
 	ctx = runstore.ContextWithRunID(ctx, runID)
 	finishCtx := context.WithoutCancel(ctx)
 	if state.StartedAt.IsZero() {
@@ -393,7 +437,12 @@ func (s *Service) ResumeWorkflows(ctx context.Context) error {
 		if state.ReleaseID != "" {
 			releaseID = state.ReleaseID
 		}
-		release, err := s.client.GetWorkflowRelease(ctx, releaseID)
+		var release *domain.WorkflowRelease
+		if state.EngineeringRelease != nil {
+			release, err = frozenEngineeringWorkflow(state.EngineeringRelease)
+		} else {
+			release, err = s.client.GetWorkflowRelease(ctx, releaseID)
+		}
 		if err != nil {
 			_ = s.finishRun(ctx, run.ID, domain.RunStatusFailed, nil, domain.ContentRef{}, 0, "workflow recovery: "+err.Error())
 			continue
@@ -402,11 +451,19 @@ func (s *Service) ResumeWorkflows(ctx context.Context) error {
 			_ = s.finishRun(ctx, run.ID, domain.RunStatusFailed, nil, domain.ContentRef{}, 0, "workflow recovery: pinned release checksum mismatch")
 			continue
 		}
+		if state.CreativeControls == nil {
+			controls, parseErr := creativeControlsFromRelease(release)
+			if parseErr != nil {
+				_ = s.finishRun(ctx, run.ID, domain.RunStatusFailed, nil, domain.ContentRef{}, 0, parseErr.Error())
+				continue
+			}
+			state.CreativeControls = &controls
+		}
 		promptSnapshots := state.PromptSnapshots
 		if len(promptSnapshots) == 0 {
 			promptSnapshots = run.PromptSnapshots
 		}
-		if len(promptSnapshots) == 0 && len(release.PromptBundle) > 0 {
+		if !managedCreationSurface(stringFromAny(run.Input["workflowSurface"])) && len(promptSnapshots) == 0 && len(release.PromptBundle) > 0 {
 			promptSnapshots, err = s.resolvePromptSnapshots(ctx, release.PromptBundle)
 			if err != nil {
 				_ = s.finishRun(ctx, run.ID, domain.RunStatusFailed, nil, domain.ContentRef{}, 0, "workflow recovery: "+err.Error())
@@ -422,11 +479,13 @@ func (s *Service) ResumeWorkflows(ctx context.Context) error {
 				current.PromptSnapshots = clonePromptSnapshots(promptSnapshots)
 			})
 		}
-		if err := validatePromptSnapshots(release.PromptBundle, promptSnapshots); err != nil {
+		if err := validateManagedPromptSnapshots(stringFromAny(run.Input["workflowSurface"]), release.PromptBundle, promptSnapshots); err != nil {
 			_ = s.finishRun(ctx, run.ID, domain.RunStatusFailed, nil, domain.ContentRef{}, 0, "workflow recovery: "+err.Error())
 			continue
 		}
-		attachPromptSnapshots(release, promptSnapshots)
+		if !managedCreationSurface(stringFromAny(run.Input["workflowSurface"])) {
+			attachPromptSnapshots(release, promptSnapshots)
+		}
 		compiled, err := workflowruntime.Compile(release, s.workflowActivities)
 		if err != nil {
 			_ = s.finishRun(ctx, run.ID, domain.RunStatusFailed, nil, domain.ContentRef{}, 0, "workflow recovery: "+err.Error())
@@ -806,7 +865,7 @@ func applyWorkflowInputDefaults(input, config map[string]any) map[string]any {
 		return out
 	}
 	for key, value := range defaults {
-		if strings.TrimSpace(key) == "" || value == nil {
+		if key == "creativeControls" || key == "workflowSystemPrompt" || key == "workflowUserPrompt" || key == "workflowModelConfig" || key == "workflowOutputSchema" || strings.TrimSpace(key) == "" || value == nil {
 			continue
 		}
 		if existing, found := out[key]; !found || workflowInputValueEmpty(existing) {
@@ -835,42 +894,25 @@ func workflowInputValueEmpty(value any) bool {
 	}
 }
 
+// Legacy bundles remain auditable but no longer control engineering prompts.
+// Operators tune release.Manifest.creativeControls instead of arbitrary text.
 func applyLegacyWorkflowPrompt(input, config map[string]any, targetKey string) (map[string]any, error) {
-	raw, found := config["promptTemplate"]
-	if !found {
-		return input, nil
-	}
-	payload, err := json.Marshal(raw)
-	if err != nil {
-		return nil, fmt.Errorf("marshal workflow prompt template: %w", err)
-	}
-	var prompt domain.PromptTemplateVersion
-	if err := json.Unmarshal(payload, &prompt); err != nil {
-		return nil, fmt.Errorf("decode workflow prompt template: %w", err)
-	}
-	variables := cloneWorkflowInput(input)
-	legacyInput := stringFromAny(input[targetKey], input["userInput"], input["rawInput"], input["seedPrompt"])
-	variables["legacyUserPrompt"] = legacyInput
-	variables["userInput"] = legacyInput
-	variables["rawInput"] = legacyInput
-	variables["seedPrompt"] = legacyInput
-	systemText, err := renderWorkflowPromptPart(prompt.SystemTemplate, variables)
-	if err != nil {
-		return nil, fmt.Errorf("render workflow system prompt %s: %w", prompt.ID, err)
-	}
-	userText, err := renderWorkflowPromptPart(prompt.UserTemplate, variables)
-	if err != nil {
-		return nil, fmt.Errorf("render workflow user prompt %s: %w", prompt.ID, err)
-	}
-	if strings.TrimSpace(userText) == "" {
-		userText = legacyInput
-	}
 	out := cloneWorkflowInput(input)
-	out["workflowSystemPrompt"] = strings.TrimSpace(systemText)
-	out["workflowUserPrompt"] = strings.TrimSpace(userText)
-	out["workflowModelConfig"] = prompt.ModelConfig
-	out["workflowOutputSchema"] = prompt.OutputSchema
-	out["workflowPromptVersionId"] = prompt.ID
+	for _, key := range []string{"workflowSystemPrompt", "workflowUserPrompt", "workflowModelConfig", "workflowOutputSchema"} {
+		delete(out, key)
+	}
+	if raw, ok := config["promptTemplate"]; ok {
+		payload, err := json.Marshal(raw)
+		if err != nil {
+			return nil, err
+		}
+		var prompt domain.PromptTemplateVersion
+		if err := json.Unmarshal(payload, &prompt); err != nil {
+			return nil, err
+		}
+		out["workflowPromptVersionId"] = prompt.ID
+		out["deprecatedTemplateIgnored"] = true
+	}
 	return out, nil
 }
 
@@ -895,4 +937,14 @@ func cloneStringMap(input map[string]string) map[string]string {
 		out[key] = value
 	}
 	return out
+}
+
+func managedCreationSurface(surface string) bool {
+	return surface == "voyager.fragment" || surface == "voyager.storyboard" || surface == "voyager.character"
+}
+func validateManagedPromptSnapshots(surface string, bundle map[string]string, snapshots map[string]domain.PromptTemplateVersion) error {
+	if managedCreationSurface(surface) {
+		return nil
+	}
+	return validatePromptSnapshots(bundle, snapshots)
 }

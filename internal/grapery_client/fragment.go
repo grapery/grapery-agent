@@ -2,35 +2,37 @@ package grapery_client
 
 import (
 	"context"
+	"github.com/grapestree/fgrapery/grapery-agent/internal/domain"
 	"net/http"
 )
 
 // ============ Fragment Generation ============
 
 type GenerateFragmentRequest struct {
-	UserInput               string                  `json:"userInput"`
-	ImageUrls               []string                `json:"imageUrls,omitempty"`
-	ReferenceSlots          []FragmentReferenceSlot `json:"referenceSlots,omitempty"`
-	ImageCount              int                     `json:"imageCount"`
-	Style                   string                  `json:"style"`
-	Mood                    string                  `json:"mood,omitempty"`
-	Length                  string                  `json:"length,omitempty"`
-	Language                string                  `json:"language"`
-	Visibility              string                  `json:"visibility"`
-	AspectRatio             string                  `json:"aspectRatio,omitempty"`
-	ConsistencyLevel        string                  `json:"consistencyLevel,omitempty"`
-	TargetDraftFragmentID   string                  `json:"targetDraftFragmentId,omitempty"`
-	ReplaceImageIndex       int                     `json:"replaceImageIndex,omitempty"`
-	ClientMessageID         string                  `json:"clientMessageId,omitempty"`
-	EnableReferenceAssets   *bool                   `json:"enableReferenceAssets,omitempty"`
-	IncludeGenerationTrace  bool                    `json:"includeGenerationTrace,omitempty"`
-	WorkflowReleaseID       string                  `json:"workflowReleaseId,omitempty"`
-	WorkflowRunID           string                  `json:"workflowRunId,omitempty"`
-	WorkflowSystemPrompt    string                  `json:"workflowSystemPrompt,omitempty"`
-	WorkflowUserPrompt      string                  `json:"workflowUserPrompt,omitempty"`
-	WorkflowModelConfig     map[string]any          `json:"workflowModelConfig,omitempty"`
-	WorkflowOutputSchema    map[string]any          `json:"workflowOutputSchema,omitempty"`
-	WorkflowPromptVersionID string                  `json:"workflowPromptVersionId,omitempty"`
+	CreativeControls        *domain.CreativeControls `json:"creativeControls,omitempty"`
+	UserInput               string                   `json:"userInput"`
+	ImageUrls               []string                 `json:"imageUrls,omitempty"`
+	ReferenceSlots          []FragmentReferenceSlot  `json:"referenceSlots,omitempty"`
+	ImageCount              int                      `json:"imageCount"`
+	Style                   string                   `json:"style"`
+	Mood                    string                   `json:"mood,omitempty"`
+	Length                  string                   `json:"length,omitempty"`
+	Language                string                   `json:"language"`
+	Visibility              string                   `json:"visibility"`
+	AspectRatio             string                   `json:"aspectRatio,omitempty"`
+	ConsistencyLevel        string                   `json:"consistencyLevel,omitempty"`
+	TargetDraftFragmentID   string                   `json:"targetDraftFragmentId,omitempty"`
+	ReplaceImageIndex       int                      `json:"replaceImageIndex,omitempty"`
+	ClientMessageID         string                   `json:"clientMessageId,omitempty"`
+	EnableReferenceAssets   *bool                    `json:"enableReferenceAssets,omitempty"`
+	IncludeGenerationTrace  bool                     `json:"includeGenerationTrace,omitempty"`
+	WorkflowReleaseID       string                   `json:"workflowReleaseId,omitempty"`
+	WorkflowRunID           string                   `json:"workflowRunId,omitempty"`
+	WorkflowSystemPrompt    string                   `json:"workflowSystemPrompt,omitempty"`
+	WorkflowUserPrompt      string                   `json:"workflowUserPrompt,omitempty"`
+	WorkflowModelConfig     map[string]any           `json:"workflowModelConfig,omitempty"`
+	WorkflowOutputSchema    map[string]any           `json:"workflowOutputSchema,omitempty"`
+	WorkflowPromptVersionID string                   `json:"workflowPromptVersionId,omitempty"`
 }
 
 type AnalyzeFragmentRequest struct {
@@ -117,15 +119,19 @@ type FragmentTaskStatus struct {
 }
 
 type FragmentTaskResult struct {
-	Content            string                           `json:"content,omitempty"`
-	ImageUrls          []string                         `json:"imageUrls,omitempty"`
-	TokensUsed         int                              `json:"tokensUsed,omitempty"`
-	AspectRatio        string                           `json:"aspectRatio,omitempty"`
-	ExpectedImageCount int                              `json:"expectedImageCount,omitempty"`
-	ImageSlots         []FragmentGenerationImageSlot    `json:"imageSlots,omitempty"`
-	ImageProgress      *FragmentGenerationImageProgress `json:"imageProgress,omitempty"`
-	StoryElements      []FragmentReferenceSlot          `json:"storyElements,omitempty"`
-	ComicDocument      map[string]any                   `json:"comicDocument,omitempty"`
+	PublicationManifest map[string]any                   `json:"publicationManifest,omitempty"`
+	PublicationAssets   []map[string]any                 `json:"publicationAssets,omitempty"`
+	DraftFragmentID     string                           `json:"draftFragmentId,omitempty"`
+	Quality             *FragmentGenerationQuality       `json:"quality,omitempty"`
+	Content             string                           `json:"content,omitempty"`
+	ImageUrls           []string                         `json:"imageUrls,omitempty"`
+	TokensUsed          int                              `json:"tokensUsed,omitempty"`
+	AspectRatio         string                           `json:"aspectRatio,omitempty"`
+	ExpectedImageCount  int                              `json:"expectedImageCount,omitempty"`
+	ImageSlots          []FragmentGenerationImageSlot    `json:"imageSlots,omitempty"`
+	ImageProgress       *FragmentGenerationImageProgress `json:"imageProgress,omitempty"`
+	StoryElements       []FragmentReferenceSlot          `json:"storyElements,omitempty"`
+	ComicDocument       map[string]any                   `json:"comicDocument,omitempty"`
 }
 
 type FragmentGenerationImageSlot struct {
@@ -147,10 +153,17 @@ type FragmentGenerationChatMessage struct {
 	Text string `json:"text,omitempty"`
 }
 
+type FragmentGenerationQuality struct {
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
 type FragmentGenerationCost struct {
-	Amount int    `json:"amount,omitempty"`
-	Unit   string `json:"unit,omitempty"`
-	Text   string `json:"text,omitempty"`
+	Amount *float64 `json:"amount,omitempty"`
+	Tokens *int     `json:"tokens,omitempty"`
+	State  string   `json:"state,omitempty"`
+	Unit   string   `json:"unit,omitempty"`
+	Text   string   `json:"text,omitempty"`
 }
 
 func (c *Client) GenerateFragment(ctx context.Context, req GenerateFragmentRequest) (*GenerateFragmentResponse, error) {

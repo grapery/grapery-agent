@@ -310,8 +310,9 @@ func creationStoryboardIntent(req domain.CreationMessageRequest) domain.Storyboa
 		CharacterIDs:         opts.CharacterIDs,
 		UseComicPagePipeline: opts.UseComicPagePipeline,
 		RegenerateStructure:  regenerate,
-		GenerateImages:       true,
-		PollTimeoutSec:       opts.PollTimeoutSec,
+		BaseRevision:         ctx.BaseRevision, TargetSceneIDs: ctx.TargetSceneIDs,
+		GenerateImages: true,
+		PollTimeoutSec: opts.PollTimeoutSec,
 	}
 }
 

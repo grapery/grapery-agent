@@ -25,10 +25,11 @@ func (s *Service) executeEnsureStoryboardDraftActivity(ctx context.Context, inpu
 	}
 	workflowManagedStages, _ := input["workflowManagedStoryboardStages"].(bool)
 	if in.RegenerateStructure && !workflowManagedStages {
-		request := grapery_client.GenerateStructureRequest{
+		request := grapery_client.GenerateStructureRequest{CreativeControls: controlsForActivity(ctx),
 			UserDirective: strings.TrimSpace(in.RawInput),
 			SceneCount:    in.SceneCount,
 			ComicStyle:    firstNonEmptyStoryboardStyle(in.ComicStyle, in.Style),
+			BaseRevision:  in.BaseRevision, TargetSceneIDs: in.TargetSceneIDs,
 		}
 		if _, err := s.client.GenerateStructure(ctx, storyboard.ID, request); err != nil {
 			return nil, err
@@ -98,12 +99,13 @@ func (s *Service) executeStoryboardTextStage(ctx context.Context, input map[stri
 	if runID, ok := runstore.RunIDFromContext(ctx); ok {
 		s.appendStoryboardStepAudit(ctx, runID, auditStep, domain.StepStarted)
 	}
-	request := grapery_client.StoryboardWorkflowStageRequest{GenerationRunID: generationRunIDFromWorkflowInput(input)}
+	request := grapery_client.StoryboardWorkflowStageRequest{CreativeControls: controlsForActivity(ctx), GenerationRunID: generationRunIDFromWorkflowInput(input)}
 	if stage == "bible_plan" {
-		request = grapery_client.StoryboardWorkflowStageRequest{
+		request = grapery_client.StoryboardWorkflowStageRequest{CreativeControls: controlsForActivity(ctx),
 			ClientRequestID: in.ClientRequestID, RegenerateStructure: in.RegenerateStructure,
 			UserDirective: strings.TrimSpace(in.RawInput), SceneCount: in.SceneCount,
 			ComicStyle: firstNonEmptyStoryboardStyle(in.ComicStyle, in.Style), Language: strings.TrimSpace(in.Language),
+			BaseRevision: in.BaseRevision, TargetSceneIDs: in.TargetSceneIDs,
 		}
 	}
 	result, err := s.client.ExecuteStoryboardWorkflowStage(ctx, storyboardID, stage, request)
@@ -116,11 +118,19 @@ func (s *Service) executeStoryboardTextStage(ctx context.Context, input map[stri
 	if runID, ok := runstore.RunIDFromContext(ctx); ok {
 		s.appendStoryboardStepAudit(ctx, runID, auditStep, domain.StepSucceeded)
 	}
-	return map[string]any{
+	output := map[string]any{
 		"storyboardId": result.StoryboardID, "generationRunId": result.GenerationRunID,
 		"stage": result.Stage, "progress": result.Progress, "alreadyComplete": result.AlreadyComplete,
 		"issueCount": result.IssueCount, "repairApplied": result.RepairApplied,
-	}, nil
+	}
+	if stage == "persist_content" {
+		artifact, err := s.storyboardAcceptedArtifact(ctx, storyboardID, false)
+		if err != nil {
+			return nil, err
+		}
+		output["artifact"] = artifact
+	}
+	return output, nil
 }
 
 func generationRunIDFromWorkflowInput(input map[string]any) string {
@@ -145,7 +155,11 @@ func (s *Service) executeEnsureStoryboardImagesActivity(ctx context.Context, inp
 		return nil, errors.New("ensure storyboard images requires an upstream storyboardId")
 	}
 	if !in.GenerateImages {
-		return map[string]any{"storyboardId": storyboardID, "imagesRequested": false}, nil
+		artifact, err := s.storyboardAcceptedArtifact(ctx, storyboardID, false)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"storyboardId": storyboardID, "imagesRequested": false, "artifact": artifact}, nil
 	}
 	if runID, ok := runstore.RunIDFromContext(ctx); ok {
 		s.appendStoryboardStepAudit(ctx, runID, "image", domain.StepStarted)
@@ -186,6 +200,11 @@ func (s *Service) executeEnsureStoryboardImagesActivity(ctx context.Context, inp
 	if failure := storyboardPipelineFailure(finalProgress); failure != "" {
 		return nil, fmt.Errorf("storyboard image generation failed: %s", failure)
 	}
+	artifact, err := s.storyboardAcceptedArtifact(ctx, storyboardID, true)
+	if err != nil {
+		return nil, err
+	}
+	output["artifact"] = artifact
 	output["imagesRequested"] = true
 	if runID, ok := runstore.RunIDFromContext(ctx); ok {
 		s.appendStoryboardStepAudit(ctx, runID, "consistency_audit", domain.StepSucceeded)

@@ -26,15 +26,17 @@ type CreationMessageRequest struct {
 }
 
 type CreationContext struct {
-	Surface            string `json:"surface,omitempty"`
-	TargetType         string `json:"targetType,omitempty"`
-	DraftID            string `json:"draftId,omitempty"`
-	StoryID            string `json:"storyId,omitempty"`
-	BranchID           string `json:"branchId,omitempty"`
-	ParentStoryID      string `json:"parentStoryId,omitempty"`
-	ParentStoryboardID string `json:"parentStoryboardId,omitempty"`
-	EditOperation      string `json:"editOperation,omitempty"`      // replace | append from an explicit UI action.
-	SelectedImageIndex int    `json:"selectedImageIndex,omitempty"` // 1-based for replace operations.
+	Surface            string   `json:"surface,omitempty"`
+	TargetType         string   `json:"targetType,omitempty"`
+	DraftID            string   `json:"draftId,omitempty"`
+	StoryID            string   `json:"storyId,omitempty"`
+	BranchID           string   `json:"branchId,omitempty"`
+	ParentStoryID      string   `json:"parentStoryId,omitempty"`
+	ParentStoryboardID string   `json:"parentStoryboardId,omitempty"`
+	EditOperation      string   `json:"editOperation,omitempty"` // replace | append from an explicit UI action.
+	BaseRevision       string   `json:"baseRevision,omitempty"`
+	TargetSceneIDs     []string `json:"targetSceneIds,omitempty"`
+	SelectedImageIndex int      `json:"selectedImageIndex,omitempty"` // 1-based for replace operations.
 }
 
 type CreationOptions struct {

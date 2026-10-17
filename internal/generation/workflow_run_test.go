@@ -150,7 +150,7 @@ func TestApplyWorkflowInputDefaultsDoesNotOverrideUserChoice(t *testing.T) {
 	}
 }
 
-func TestApplyLegacyWorkflowPromptUsesPinnedTemplate(t *testing.T) {
+func TestApplyLegacyWorkflowPromptKeepsCoreAndOnlyAuditsPinnedID(t *testing.T) {
 	prompt := domain.PromptTemplateVersion{
 		ID: "ptv_fragment_1", SystemTemplate: "Keep {{.style}} continuity.", UserTemplate: "Create: {{.legacyUserPrompt}}",
 	}
@@ -162,8 +162,8 @@ func TestApplyLegacyWorkflowPromptUsesPinnedTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if input["userInput"] != "a rainy reunion" || input["workflowSystemPrompt"] != "Keep ink continuity." || input["workflowUserPrompt"] != "Create: a rainy reunion" || input["workflowPromptVersionId"] != prompt.ID {
-		t.Fatalf("pinned prompt was not applied: %+v", input)
+	if input["userInput"] != "a rainy reunion" || input["workflowSystemPrompt"] != nil || input["workflowUserPrompt"] != nil || input["workflowPromptVersionId"] != prompt.ID || input["deprecatedTemplateIgnored"] != true {
+		t.Fatalf("deprecated template changed core prompt: %+v", input)
 	}
 }
 

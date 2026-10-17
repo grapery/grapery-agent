@@ -537,11 +537,13 @@ func (c *Client) doJSON(req *http.Request, dest interface{}) error {
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		var envelope struct {
-			Message string `json:"message"`
+			Message   string `json:"message"`
+			ErrorCode string `json:"errorCode"`
+			Code      int    `json:"code"`
 		}
 		if json.Unmarshal(body, &envelope) == nil {
 			if message := strings.TrimSpace(envelope.Message); message != "" {
-				return fmt.Errorf("grapery policy api %s: status %d: %s", req.URL.Path, resp.StatusCode, message)
+				return &PolicyAPIError{Path: req.URL.Path, Status: resp.StatusCode, Code: envelope.Code, Message: message, ErrorCode: envelope.ErrorCode}
 			}
 		}
 		return fmt.Errorf("grapery policy api %s: status %d", req.URL.Path, resp.StatusCode)

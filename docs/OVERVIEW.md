@@ -461,3 +461,12 @@ cd grapery-agent && go test ./internal/prompt/ -run TestGraperyPromptAnchors
 
 - [PROMPT_SYNC.md](./PROMPT_SYNC.md) — Agent ↔ grapery 提示词维护与对照细节
 - `internal/domain/contracts.go` — 与 grapery HTTP API 的字段注释映射
+
+
+## 创作结果验收（2026-10-16）
+
+`internal/eval/outcome.go` 将最终产物就绪与工具成功区分；缺失验收结果、页数不符、partial角色和缺失故事板产物均不能计入就绪率。`CreationContractSeeds(ownedStoryID)` 提供碎片、故事板、角色三类固定场景和人工rubric，使用 `RunEvalWithSeeds` 显式运行；这会访问真实生成服务并可能收费，单元测试不会执行它。
+
+业务不变量、恢复接口与上线边界见 [Grapery创作链路](../../grapery/docs/CREATION_PIPELINE.md)。本次没有发布线上workflow或prompt版本。
+
+HTTP 评测支持 `suite: "creation_contracts", storyId: "本人测试世界ID"`，可使用 `seedIds` 限定样本。调用此接口会执行真实生成；本轮只运行了离线 grader 与契约测试。

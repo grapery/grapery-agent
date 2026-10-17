@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"github.com/grapestree/fgrapery/grapery-agent/internal/domain"
 	"github.com/grapestree/fgrapery/grapery-agent/internal/grapery_client"
 	"testing"
 )
@@ -53,5 +54,27 @@ func TestReviewFragmentComicDocumentRejectsTemplatePadding(t *testing.T) {
 	}
 	if review := reviewFragmentComicDocument(document); review.Ready || len(review.Issues) == 0 {
 		t.Fatalf("expected padded page to fail Agent review: %#v", review)
+	}
+}
+
+func TestFragmentProgressExposesQualityWithoutRequiringFullTrace(t *testing.T) {
+	quality := &grapery_client.FragmentGenerationQuality{Status: "unreviewed", Reason: "audit unavailable"}
+	output := map[string]any{}
+	copyFragmentStatusOutput(output, &grapery_client.FragmentTaskStatus{Result: &grapery_client.FragmentTaskResult{Quality: quality}})
+	if output["quality"] != quality {
+		t.Fatal("publication quality was lost in agent progress")
+	}
+	copyFragmentStatusOutput(output, &grapery_client.FragmentTaskStatus{})
+	if output["quality"] != quality {
+		t.Fatal("empty poll erased quality outcome")
+	}
+}
+
+func TestFragmentFailedBillingRetainsEditableAssetsAndRecoveryActions(t *testing.T) {
+	amount := 0.0012
+	status := &grapery_client.FragmentTaskStatus{TaskID: "task", Status: "failed", Error: "billing_unsettled: unavailable", Cost: &grapery_client.FragmentGenerationCost{Amount: &amount, State: "unsettled"}, Result: &grapery_client.FragmentTaskResult{DraftFragmentID: "saved-draft", Content: "saved story", ImageUrls: []string{"saved.jpg"}, Quality: &grapery_client.FragmentGenerationQuality{Status: "passed"}, ComicDocument: map[string]any{"revision": 2}, TokensUsed: 12}}
+	output, content, tokens := fragmentFailureRecoveryOutput(status, domain.ContentRef{TaskID: "task"})
+	if content.FragmentID != "saved-draft" || tokens != 12 || output["content"] != "saved story" || output["quality"] == nil || output["comicDocument"] == nil || output["cost"] != status.Cost || output["result"] != status.Result || output["draftFragmentId"] != "saved-draft" {
+		t.Fatalf("failed generation discarded recovery snapshot %#v", output)
 	}
 }

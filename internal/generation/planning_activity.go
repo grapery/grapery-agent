@@ -117,31 +117,7 @@ func generationPlannerPrompts(input, config map[string]any) (string, string, map
 	}
 	systemPrompt := generationPlannerSystemPrompt
 	userPrompt := "Plan this storyboard generation from the following runtime input:\n" + truncatePlannerText(string(payload), 24000)
-	raw, ok := config["promptTemplate"]
-	if !ok {
-		return systemPrompt, userPrompt, nil, nil
-	}
-	promptPayload, err := json.Marshal(raw)
-	if err != nil {
-		return "", "", nil, fmt.Errorf("marshal planner prompt template: %w", err)
-	}
-	var prompt domain.PromptTemplateVersion
-	if err := json.Unmarshal(promptPayload, &prompt); err != nil {
-		return "", "", nil, fmt.Errorf("decode planner prompt template: %w", err)
-	}
-	variables := cloneWorkflowInput(input)
-	variables["inputJSON"] = string(payload)
-	if rendered, err := renderWorkflowPromptPart(prompt.SystemTemplate, variables); err != nil {
-		return "", "", nil, fmt.Errorf("render planner system prompt %s: %w", prompt.ID, err)
-	} else if strings.TrimSpace(rendered) != "" {
-		systemPrompt = rendered
-	}
-	if rendered, err := renderWorkflowPromptPart(prompt.UserTemplate, variables); err != nil {
-		return "", "", nil, fmt.Errorf("render planner user prompt %s: %w", prompt.ID, err)
-	} else if strings.TrimSpace(rendered) != "" {
-		userPrompt = rendered
-	}
-	return systemPrompt, userPrompt, prompt.OutputSchema, nil
+	return systemPrompt, userPrompt, nil, nil
 }
 
 func decodeGenerationPlan(raw string) (domain.GenerationPlan, error) {

@@ -1,23 +1,28 @@
 package grapery_client
 
-import "context"
+import (
+	"context"
+	"github.com/grapestree/fgrapery/grapery-agent/internal/domain"
+)
 
 // ============ Storyboard Generation ============
 
 type CreateStoryboardRequest struct {
-	StoryID              string         `json:"storyId"`
-	ParentID             string         `json:"parentId,omitempty"`
-	Title                string         `json:"title,omitempty"`
-	RawInput             string         `json:"rawInput"`
-	Content              string         `json:"content,omitempty"`
-	IsStandalone         bool           `json:"isStandalone"`
-	SceneCount           int            `json:"sceneCount,omitempty"`
-	CharacterRefs        []CharacterRef `json:"characterRefs,omitempty"`
-	SceneRefs            []SceneRef     `json:"sceneRefs,omitempty"`
-	Tags                 []string       `json:"tags,omitempty"`
-	UseComicPagePipeline bool           `json:"useComicPagePipeline"`
-	WorkflowReleaseID    string         `json:"workflowReleaseId,omitempty"`
-	WorkflowRunID        string         `json:"workflowRunId,omitempty"`
+	CreativeControls     *domain.CreativeControls `json:"creativeControls,omitempty"`
+	StoryID              string                   `json:"storyId"`
+	ParentID             string                   `json:"parentId,omitempty"`
+	Title                string                   `json:"title,omitempty"`
+	RawInput             string                   `json:"rawInput"`
+	Content              string                   `json:"content,omitempty"`
+	IsStandalone         bool                     `json:"isStandalone"`
+	SceneCount           int                      `json:"sceneCount,omitempty"`
+	ComicStyle           string                   `json:"comicStyle,omitempty"`
+	CharacterRefs        []CharacterRef           `json:"characterRefs,omitempty"`
+	SceneRefs            []SceneRef               `json:"sceneRefs,omitempty"`
+	Tags                 []string                 `json:"tags,omitempty"`
+	UseComicPagePipeline bool                     `json:"useComicPagePipeline"`
+	WorkflowReleaseID    string                   `json:"workflowReleaseId,omitempty"`
+	WorkflowRunID        string                   `json:"workflowRunId,omitempty"`
 }
 
 type CharacterRef struct {
@@ -34,12 +39,23 @@ type SceneRef struct {
 }
 
 type StoryboardResponse struct {
-	ID                  string `json:"id"`
-	StoryID             string `json:"storyId"`
-	Title               string `json:"title"`
-	Content             string `json:"content,omitempty"`
-	RawInput            string `json:"rawInput,omitempty"`
-	ContinuationSummary string `json:"continuationSummary,omitempty"`
+	ID                  string                    `json:"id"`
+	StoryID             string                    `json:"storyId"`
+	Title               string                    `json:"title"`
+	Content             string                    `json:"content,omitempty"`
+	RawInput            string                    `json:"rawInput,omitempty"`
+	ContinuationSummary string                    `json:"continuationSummary,omitempty"`
+	ContentRevision     string                    `json:"contentRevision,omitempty"`
+	Scenes              []StoryboardSceneArtifact `json:"storyboardScenes,omitempty"`
+}
+
+type StoryboardSceneArtifact struct {
+	ID             string `json:"id"`
+	Sequence       int    `json:"sequence"`
+	Title          string `json:"title"`
+	Description    string `json:"description"`
+	Image          string `json:"image,omitempty"`
+	ContinuityNote string `json:"continuityNote,omitempty"`
 }
 
 type GenerateStoryboardContentRequest struct {
@@ -81,13 +97,14 @@ type StoryboardVideoRequest struct {
 }
 
 type ContinueStoryboardRequest struct {
-	RawInput          string   `json:"rawInput"`
-	SceneCount        int      `json:"sceneCount,omitempty"`
-	Characters        []string `json:"characters,omitempty"`
-	GenerateVideo     bool     `json:"generateVideo,omitempty"`
-	ComicStyle        string   `json:"comicStyle,omitempty"`
-	WorkflowReleaseID string   `json:"workflowReleaseId,omitempty"`
-	WorkflowRunID     string   `json:"workflowRunId,omitempty"`
+	CreativeControls  *domain.CreativeControls `json:"creativeControls,omitempty"`
+	RawInput          string                   `json:"rawInput"`
+	SceneCount        int                      `json:"sceneCount,omitempty"`
+	Characters        []string                 `json:"characters,omitempty"`
+	GenerateVideo     bool                     `json:"generateVideo,omitempty"`
+	ComicStyle        string                   `json:"comicStyle,omitempty"`
+	WorkflowReleaseID string                   `json:"workflowReleaseId,omitempty"`
+	WorkflowRunID     string                   `json:"workflowRunId,omitempty"`
 }
 
 type ContinueStoryboardResponse struct {
@@ -112,13 +129,16 @@ type StoryboardWorkflowStageResponse struct {
 }
 
 type StoryboardWorkflowStageRequest struct {
-	GenerationRunID     string `json:"generationRunId,omitempty"`
-	ClientRequestID     string `json:"clientRequestId,omitempty"`
-	RegenerateStructure bool   `json:"regenerateStructure,omitempty"`
-	UserDirective       string `json:"userDirective,omitempty"`
-	SceneCount          int    `json:"sceneCount,omitempty"`
-	ComicStyle          string `json:"comicStyle,omitempty"`
-	Language            string `json:"language,omitempty"`
+	CreativeControls    *domain.CreativeControls `json:"creativeControls,omitempty"`
+	GenerationRunID     string                   `json:"generationRunId,omitempty"`
+	ClientRequestID     string                   `json:"clientRequestId,omitempty"`
+	RegenerateStructure bool                     `json:"regenerateStructure,omitempty"`
+	UserDirective       string                   `json:"userDirective,omitempty"`
+	SceneCount          int                      `json:"sceneCount,omitempty"`
+	ComicStyle          string                   `json:"comicStyle,omitempty"`
+	Language            string                   `json:"language,omitempty"`
+	BaseRevision        string                   `json:"baseRevision,omitempty"`
+	TargetSceneIDs      []string                 `json:"targetSceneIds,omitempty"`
 }
 
 type GenerationPipelineStep struct {
@@ -291,9 +311,12 @@ func (c *Client) ContinueStoryboard(ctx context.Context, storyboardID string, re
 // GenerateStructureRequest carries this turn's revision instruction. All fields are
 // optional; an empty request keeps the legacy "resume a stalled draft" behaviour.
 type GenerateStructureRequest struct {
-	UserDirective string `json:"userDirective,omitempty"`
-	SceneCount    int    `json:"sceneCount,omitempty"`
-	ComicStyle    string `json:"comicStyle,omitempty"`
+	CreativeControls *domain.CreativeControls `json:"creativeControls,omitempty"`
+	UserDirective    string                   `json:"userDirective,omitempty"`
+	SceneCount       int                      `json:"sceneCount,omitempty"`
+	ComicStyle       string                   `json:"comicStyle,omitempty"`
+	BaseRevision     string                   `json:"baseRevision,omitempty"`
+	TargetSceneIDs   []string                 `json:"targetSceneIds,omitempty"`
 }
 
 func (c *Client) GenerateStructure(ctx context.Context, storyboardID string, req GenerateStructureRequest) (*GenerateStructureResponse, error) {

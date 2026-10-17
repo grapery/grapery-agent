@@ -1,12 +1,20 @@
 package grapery_client
 
-import "context"
+import (
+	"context"
+	"github.com/grapestree/fgrapery/grapery-agent/internal/domain"
+)
 
 // ============ Character Generation ============
 
 type GenerateCharacterAttrsRequest struct {
-	Prompt string `json:"prompt"`
-	Name   string `json:"name,omitempty"`
+	WorkflowReleaseID string                   `json:"workflowReleaseId,omitempty"`
+	WorkflowRunID     string                   `json:"workflowRunId,omitempty"`
+	CreativeControls  *domain.CreativeControls `json:"creativeControls,omitempty"`
+	StoryID           string                   `json:"storyId,omitempty"`
+	KnownAttributes   *GeneratedCharacterAttrs `json:"knownAttributes,omitempty"`
+	Prompt            string                   `json:"prompt"`
+	Name              string                   `json:"name,omitempty"`
 }
 
 type GeneratedCharacterAttrs struct {
@@ -23,20 +31,20 @@ type GeneratedCharacterAttrs struct {
 }
 
 type CreateCharacterRequest struct {
-	Name            string   `json:"name"`
-	Description     string   `json:"description,omitempty"`
-	Avatar          string   `json:"avatar,omitempty"`
-	Personality     string   `json:"personality,omitempty"`
-	Background      string   `json:"background,omitempty"`
-	ShortTermGoal   string   `json:"shortTermGoal,omitempty"`
-	LongTermGoal    string   `json:"longTermGoal,omitempty"`
-	HandlingStyle   string   `json:"handlingStyle,omitempty"`
-	CognitionRange  string   `json:"cognitionRange,omitempty"`
-	AbilityFeatures string   `json:"abilityFeatures,omitempty"`
-	Appearance      string   `json:"appearance,omitempty"`
-	DressPreference string   `json:"dressPreference,omitempty"`
-	StoryID         string   `json:"storyId"`
-	IsPublic        bool     `json:"isPublic"`
+	Name                       string   `json:"name"`
+	Description                string   `json:"description,omitempty"`
+	Avatar                     string   `json:"avatar,omitempty"`
+	Personality                string   `json:"personality,omitempty"`
+	Background                 string   `json:"background,omitempty"`
+	ShortTermGoal              string   `json:"shortTermGoal,omitempty"`
+	LongTermGoal               string   `json:"longTermGoal,omitempty"`
+	HandlingStyle              string   `json:"handlingStyle,omitempty"`
+	CognitionRange             string   `json:"cognitionRange,omitempty"`
+	AbilityFeatures            string   `json:"abilityFeatures,omitempty"`
+	Appearance                 string   `json:"appearance,omitempty"`
+	DressPreference            string   `json:"dressPreference,omitempty"`
+	StoryID                    string   `json:"storyId"`
+	IsPublic                   bool     `json:"isPublic"`
 	SourceType                 string   `json:"sourceType"`
 	ReferenceImage             string   `json:"referenceImage,omitempty"`
 	SourceFragmentID           string   `json:"sourceFragmentId,omitempty"`
@@ -49,7 +57,7 @@ type CharacterResponse struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Avatar      string `json:"avatar"`
-	PortraitURL string `json:"portraitUrl,omitempty"`
+	PortraitURL string `json:"portrait,omitempty"`
 }
 
 type GenerateAvatarRequest struct {
@@ -89,24 +97,27 @@ type ThreeViews struct {
 }
 
 type CharacterGenTaskRequest struct {
-	StoryID                    string              `json:"storyId"`
-	SourceType                 string              `json:"sourceType"`
-	Name                       string              `json:"name,omitempty"`
-	Prompt                     string              `json:"prompt,omitempty"`
-	Description                string              `json:"description,omitempty"`
-	Background                 string              `json:"background,omitempty"`
-	Personality                string              `json:"personality,omitempty"`
-	ShortTermGoal              string              `json:"shortTermGoal,omitempty"`
-	LongTermGoal               string              `json:"longTermGoal,omitempty"`
-	HandlingStyle              string              `json:"handlingStyle,omitempty"`
-	CognitionRange             string              `json:"cognitionRange,omitempty"`
-	AbilityFeatures            string              `json:"abilityFeatures,omitempty"`
-	Appearance                 string              `json:"appearance,omitempty"`
-	DressPreference            string              `json:"dressPreference,omitempty"`
-	ReferenceImage             string              `json:"referenceImage,omitempty"`
-	SourceFragmentID           string              `json:"sourceFragmentId,omitempty"`
-	SourceFragmentCharacterKey string              `json:"sourceFragmentCharacterKey,omitempty"`
-	Suggestion                 *FragmentSuggestion `json:"suggestion,omitempty"`
+	WorkflowReleaseID          string                   `json:"workflowReleaseId,omitempty"`
+	WorkflowRunID              string                   `json:"workflowRunId,omitempty"`
+	CreativeControls           *domain.CreativeControls `json:"creativeControls,omitempty"`
+	StoryID                    string                   `json:"storyId"`
+	SourceType                 string                   `json:"sourceType"`
+	Name                       string                   `json:"name,omitempty"`
+	Prompt                     string                   `json:"prompt,omitempty"`
+	Description                string                   `json:"description,omitempty"`
+	Background                 string                   `json:"background,omitempty"`
+	Personality                string                   `json:"personality,omitempty"`
+	ShortTermGoal              string                   `json:"shortTermGoal,omitempty"`
+	LongTermGoal               string                   `json:"longTermGoal,omitempty"`
+	HandlingStyle              string                   `json:"handlingStyle,omitempty"`
+	CognitionRange             string                   `json:"cognitionRange,omitempty"`
+	AbilityFeatures            string                   `json:"abilityFeatures,omitempty"`
+	Appearance                 string                   `json:"appearance,omitempty"`
+	DressPreference            string                   `json:"dressPreference,omitempty"`
+	ReferenceImage             string                   `json:"referenceImage,omitempty"`
+	SourceFragmentID           string                   `json:"sourceFragmentId,omitempty"`
+	SourceFragmentCharacterKey string                   `json:"sourceFragmentCharacterKey,omitempty"`
+	Suggestion                 *FragmentSuggestion      `json:"suggestion,omitempty"`
 }
 
 type FragmentSuggestion struct {
@@ -122,24 +133,30 @@ type FragmentSuggestion struct {
 	ExistingCharacterID string `json:"existingCharacterId,omitempty"`
 }
 
+type CharacterGenTaskStage struct {
+	Status   string `json:"status"`
+	Error    string `json:"error,omitempty"`
+	Attempts int    `json:"attempts"`
+}
 type CharacterGenTask struct {
-	ID                         string             `json:"id"`
-	StoryID                    string             `json:"storyId"`
-	CharacterID                string             `json:"characterId,omitempty"`
-	SourceType                 string             `json:"sourceType"`
-	SourceFragmentID           string             `json:"sourceFragmentId,omitempty"`
-	SourceFragmentCharacterKey string             `json:"sourceFragmentCharacterKey,omitempty"`
-	Status                     string             `json:"status"`
-	Progress                   int                `json:"progress"`
-	CurrentStep                string             `json:"currentStep,omitempty"`
-	ErrorMessage               string             `json:"errorMessage,omitempty"`
-	Character                  *CharacterResponse `json:"character,omitempty"`
+	Stages                     map[string]CharacterGenTaskStage `json:"stages,omitempty"`
+	ID                         string                           `json:"id"`
+	StoryID                    string                           `json:"storyId"`
+	CharacterID                string                           `json:"characterId,omitempty"`
+	SourceType                 string                           `json:"sourceType"`
+	SourceFragmentID           string                           `json:"sourceFragmentId,omitempty"`
+	SourceFragmentCharacterKey string                           `json:"sourceFragmentCharacterKey,omitempty"`
+	Status                     string                           `json:"status"`
+	Progress                   int                              `json:"progress"`
+	CurrentStep                string                           `json:"currentStep,omitempty"`
+	ErrorMessage               string                           `json:"errorMessage,omitempty"`
+	Character                  *CharacterResponse               `json:"character,omitempty"`
 }
 
 type FragmentCharacterSuggestionsResponse struct {
-	StoryID      string              `json:"storyId"`
-	FragmentID   string              `json:"fragmentId"`
-	Suggestions  []FragmentSuggestion `json:"suggestions"`
+	StoryID     string               `json:"storyId"`
+	FragmentID  string               `json:"fragmentId"`
+	Suggestions []FragmentSuggestion `json:"suggestions"`
 }
 
 func (c *Client) GenerateCharacterAttrs(ctx context.Context, req GenerateCharacterAttrsRequest) (*GeneratedCharacterAttrs, error) {

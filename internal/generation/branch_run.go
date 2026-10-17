@@ -12,6 +12,11 @@ import (
 )
 
 func (s *Service) StartBranchBatch(ctx context.Context, in domain.BranchExploreInput) (*domain.GenerationRun, error) {
+	controls, err := controlsForGeneration(ctx, in.CreativeControls)
+	if err != nil {
+		return nil, err
+	}
+	in.CreativeControls = controls
 	strategies := in.Strategies
 	if len(strategies) == 0 {
 		count := defaultInt(in.BranchCount, 3)
@@ -20,7 +25,7 @@ func (s *Service) StartBranchBatch(ctx context.Context, in domain.BranchExploreI
 		}
 		strategies = prompt.DefaultBranchStrategies[:count]
 	}
-	input := map[string]any{
+	input := map[string]any{"creativeControls": controls,
 		"clientRequestId":    in.ClientRequestID,
 		"parentStoryboardId": in.ParentStoryboardID,
 		"strategies":         strategies,
@@ -45,7 +50,7 @@ func (s *Service) StartBranchBatch(ctx context.Context, in domain.BranchExploreI
 			return nil, err
 		}
 	}
-	execCtx := context.Background()
+	execCtx := withCreativeControls(context.Background(), *controls)
 	if claims, ok := agentauth.ClaimsFromContext(ctx); ok {
 		execCtx = agentauth.ContextWithClaims(execCtx, claims)
 	}
@@ -106,7 +111,7 @@ func (s *Service) executeBranchBatch(ctx context.Context, runID string, in domai
 			"parentStoryboardId": in.ParentStoryboardID,
 			"strategy":           strategy,
 		}, func(c context.Context) (map[string]any, error) {
-			resp, err := s.client.ContinueStoryboard(c, in.ParentStoryboardID, grapery_client.ContinueStoryboardRequest{
+			resp, err := s.client.ContinueStoryboard(c, in.ParentStoryboardID, grapery_client.ContinueStoryboardRequest{CreativeControls: in.CreativeControls,
 				RawInput:          rawInput,
 				SceneCount:        defaultInt(in.SceneCount, 3),
 				Characters:        in.Characters,

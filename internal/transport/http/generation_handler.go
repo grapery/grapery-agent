@@ -19,20 +19,20 @@ import (
 // GenerationHandler serves non-chat generation and RL artifact APIs.
 type GenerationHandler struct {
 	internalKey string
-	gen      *generation.Service
-	client   *grapery_client.Client
-	store    runstore.Store
-	exporter *artifact.Exporter
-	eval     *eval.Harness
+	gen         *generation.Service
+	client      *grapery_client.Client
+	store       runstore.Store
+	exporter    *artifact.Exporter
+	eval        *eval.Harness
 }
 
 func NewGenerationHandler(gen *generation.Service, store runstore.Store, artifactDir string, authCfg config.AgentAuthConfig) *GenerationHandler {
 	return &GenerationHandler{
-		gen:          gen,
-		store:        store,
-		exporter:     artifact.NewExporter(store, artifactDir),
-		eval:         eval.NewHarness(gen, store),
-		internalKey:  strings.TrimSpace(authCfg.InternalAPIKey),
+		gen:         gen,
+		store:       store,
+		exporter:    artifact.NewExporter(store, artifactDir),
+		eval:        eval.NewHarness(gen, store),
+		internalKey: strings.TrimSpace(authCfg.InternalAPIKey),
 	}
 }
 
@@ -283,15 +283,32 @@ func (h *GenerationHandler) runEval(c *gin.Context) {
 		AgentVersion domain.AgentVersion `json:"agentVersion"`
 		SeedIDs      []string            `json:"seedIds,omitempty"`
 		WaitSec      int                 `json:"waitSec,omitempty"`
+		Suite        string              `json:"suite,omitempty"`
+		StoryID      string              `json:"storyId,omitempty"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		h.fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	seeds := eval.DefaultSeeds()
+	if body.Suite != "" && body.Suite != "default" && body.Suite != "creation_contracts" {
+		h.fail(c, http.StatusBadRequest, "unknown eval suite")
+		return
+	}
+	if body.Suite == "creation_contracts" {
+		if strings.TrimSpace(body.StoryID) == "" {
+			h.fail(c, http.StatusBadRequest, "creation_contracts requires an owned test storyId")
+			return
+		}
+		seeds = eval.CreationContractSeeds(body.StoryID)
+		if body.AgentVersion == "" {
+			body.AgentVersion = domain.AgentVersion("creation_contracts:v1")
+		}
+	}
 	if body.AgentVersion == "" {
 		body.AgentVersion = domain.AgentFragmentCreator
 	}
-	record, err := h.eval.RunEval(c.Request.Context(), body.AgentVersion, body.SeedIDs, body.WaitSec)
+	record, err := h.eval.RunEvalWithSeeds(c.Request.Context(), body.AgentVersion, seeds, body.SeedIDs, body.WaitSec)
 	if err != nil {
 		h.fail(c, http.StatusInternalServerError, err.Error())
 		return
@@ -300,6 +317,10 @@ func (h *GenerationHandler) runEval(c *gin.Context) {
 }
 
 func (h *GenerationHandler) listSeeds(c *gin.Context) {
+	if c.Query("suite") == "creation_contracts" {
+		h.ok(c, eval.CreationContractSeeds(c.Query("storyId")))
+		return
+	}
 	h.ok(c, eval.DefaultSeeds())
 }
 

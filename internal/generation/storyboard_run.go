@@ -13,7 +13,12 @@ import (
 )
 
 func (s *Service) StartStoryboard(ctx context.Context, in domain.StoryboardGenerateInput) (*domain.GenerationRun, error) {
-	input := map[string]any{
+	controls, err := controlsForGeneration(ctx, in.CreativeControls)
+	if err != nil {
+		return nil, err
+	}
+	in.CreativeControls = controls
+	input := map[string]any{"creativeControls": controls,
 		"clientRequestId": in.ClientRequestID,
 		"storyId":         in.StoryID,
 		"rawInput":        in.RawInput,
@@ -33,7 +38,7 @@ func (s *Service) StartStoryboard(ctx context.Context, in domain.StoryboardGener
 			return nil, err
 		}
 	}
-	execCtx := context.Background()
+	execCtx := withCreativeControls(context.Background(), *controls)
 	if claims, ok := agentauth.ClaimsFromContext(ctx); ok {
 		execCtx = agentauth.ContextWithClaims(execCtx, claims)
 	}
@@ -78,10 +83,11 @@ func (s *Service) executeStoryboard(ctx context.Context, runID string, in domain
 		s.appendStoryboardStepAudit(ctx, runID, "bible_plan", domain.StepStarted)
 		// This turn's message is the revision instruction; the storyboard's RawInput
 		// still holds the original description and must not be overwritten by it.
-		structureReq := grapery_client.GenerateStructureRequest{
+		structureReq := grapery_client.GenerateStructureRequest{CreativeControls: in.CreativeControls,
 			UserDirective: strings.TrimSpace(in.RawInput),
 			SceneCount:    in.SceneCount,
 			ComicStyle:    firstNonEmptyStoryboardStyle(in.ComicStyle, in.Style),
+			BaseRevision:  in.BaseRevision, TargetSceneIDs: in.TargetSceneIDs,
 		}
 		_, err = tracedClientCall(ctx, s.store, "regenerate_structure", map[string]any{
 			"storyboardId":  sb.ID,
@@ -193,6 +199,12 @@ func (s *Service) executeStoryboard(ctx context.Context, runID string, in domain
 		s.appendStoryboardStepAudit(ctx, runID, "consistency_audit", domain.StepSucceeded)
 	}
 
+	artifact, err := s.storyboardAcceptedArtifact(ctx, sb.ID, in.GenerateImages)
+	if err != nil {
+		_ = s.finishRun(ctx, runID, domain.RunStatusFailed, output, content, 0, err.Error())
+		return
+	}
+	output["artifact"] = artifact
 	output["progress"] = 100
 	_ = s.finishRun(ctx, runID, domain.RunStatusSucceeded, output, content, 0, "")
 	if run, ok := s.store.GetRun(ctx, runID); ok {
@@ -313,15 +325,21 @@ func (s *Service) createStoryboard(ctx context.Context, in domain.StoryboardGene
 				idempotencyKey = "storyboard:" + runID
 			}
 		}
+		var sceneRefs []grapery_client.SceneRef
+		for _, id := range in.SceneIDs {
+			if strings.TrimSpace(id) != "" {
+				sceneRefs = append(sceneRefs, grapery_client.SceneRef{StorySceneID: id})
+			}
+		}
 		requestContext := grapery_client.ContextWithIdempotencyKey(c, idempotencyKey)
 		workflowRunID, _ := runstore.RunIDFromContext(c)
-		resp, err := s.client.CreateStoryboard(requestContext, grapery_client.CreateStoryboardRequest{
-			StoryID:              in.StoryID,
-			ParentID:             parentID,
-			Title:                in.Title,
-			RawInput:             in.RawInput,
-			SceneCount:           defaultInt(in.SceneCount, 3),
-			CharacterRefs:        charRefs,
+		resp, err := s.client.CreateStoryboard(requestContext, grapery_client.CreateStoryboardRequest{CreativeControls: controlsForActivity(c),
+			StoryID:       in.StoryID,
+			ParentID:      parentID,
+			Title:         in.Title,
+			RawInput:      in.RawInput,
+			SceneCount:    defaultInt(in.SceneCount, 3),
+			CharacterRefs: charRefs, SceneRefs: sceneRefs, ComicStyle: comicStyle,
 			UseComicPagePipeline: in.UseComicPagePipeline,
 			WorkflowReleaseID:    in.WorkflowReleaseID,
 			WorkflowRunID:        workflowRunID,

@@ -12,7 +12,12 @@ import (
 )
 
 func (s *Service) StartFragment(ctx context.Context, in domain.FragmentGenerateInput) (*domain.GenerationRun, error) {
-	input := map[string]any{
+	controls, err := controlsForGeneration(ctx, in.CreativeControls)
+	if err != nil {
+		return nil, err
+	}
+	in.CreativeControls = controls
+	input := map[string]any{"creativeControls": controls,
 		"userInput":             in.UserInput,
 		"imageCount":            in.ImageCount,
 		"style":                 in.Style,
@@ -42,7 +47,7 @@ func (s *Service) StartFragment(ctx context.Context, in domain.FragmentGenerateI
 		}
 	}
 
-	execCtx := context.Background()
+	execCtx := withCreativeControls(context.Background(), *controls)
 	if claims, ok := agentauth.ClaimsFromContext(ctx); ok {
 		execCtx = agentauth.ContextWithClaims(execCtx, claims)
 	}
@@ -88,6 +93,12 @@ func (s *Service) executeFragment(ctx context.Context, runID string, in domain.F
 		WorkflowPromptVersionID: in.WorkflowPromptVersionID,
 	}
 
+	req.CreativeControls = in.CreativeControls
+	// Full text/model/schema overrides are obsolete and must not cross trust boundaries.
+	req.WorkflowSystemPrompt = ""
+	req.WorkflowUserPrompt = ""
+	req.WorkflowModelConfig = nil
+	req.WorkflowOutputSchema = nil
 	startResp, err := s.startFragmentTask(ctx, req)
 	if err != nil {
 		_ = s.finishRun(ctx, runID, domain.RunStatusFailed, nil, domain.ContentRef{}, 0, err.Error())
@@ -116,7 +127,8 @@ func (s *Service) executeFragment(ctx context.Context, runID string, in domain.F
 			final = status
 			goto done
 		case "failed", "cancelled", "canceled":
-			_ = s.finishRun(ctx, runID, domain.RunStatusFailed, map[string]any{"status": status.Status, "error": status.Error}, content, 0, status.Error)
+			output, savedContent, tokens := fragmentFailureRecoveryOutput(status, content)
+			_ = s.finishRun(ctx, runID, domain.RunStatusFailed, output, savedContent, tokens, status.Error)
 			return
 		}
 		time.Sleep(pollInterval)
@@ -209,6 +221,17 @@ func fragmentDirectorPhase(currentStep string) string {
 func copyFragmentStatusOutput(output map[string]any, status *grapery_client.FragmentTaskStatus) {
 	if status == nil {
 		return
+	}
+	if status.Result != nil {
+		if status.Result.PublicationManifest != nil {
+			output["publicationManifest"] = status.Result.PublicationManifest
+		}
+		if status.Result.PublicationAssets != nil {
+			output["publicationAssets"] = status.Result.PublicationAssets
+		}
+	}
+	if status.Result != nil && status.Result.Quality != nil {
+		output["quality"] = status.Result.Quality
 	}
 	if status.Result != nil && len(status.Result.ComicDocument) > 0 {
 		// App recovery reads the same document key as the final output. Keeping
@@ -362,4 +385,41 @@ func num(v any) float64 {
 	default:
 		return 0
 	}
+}
+
+// Failed billing/quality work can still contain fully rendered, editable art.
+// Preserve the authoritative status snapshot so recovery never implies a new
+// paid generation just because the orchestration run ended unsuccessfully.
+func fragmentFailureRecoveryOutput(status *grapery_client.FragmentTaskStatus, content domain.ContentRef) (map[string]any, domain.ContentRef, int) {
+	output := map[string]any{"taskId": content.TaskID, "status": status.Status, "error": status.Error}
+	copyFragmentStatusOutput(output, status)
+	tokens := 0
+	if result := status.Result; result != nil {
+		output["result"] = result
+		output["partialResult"] = result
+		output["content"] = result.Content
+		output["imageUrls"] = result.ImageUrls
+		output["aspectRatio"] = result.AspectRatio
+		output["storyElements"] = result.StoryElements
+		output["expectedImageCount"] = result.ExpectedImageCount
+		if len(result.ImageSlots) > 0 {
+			output["imageSlots"] = result.ImageSlots
+		}
+		if result.ImageProgress != nil {
+			output["imageProgress"] = result.ImageProgress
+		}
+		if result.DraftFragmentID != "" {
+			content.FragmentID = result.DraftFragmentID
+		}
+		tokens = result.TokensUsed
+	}
+	if status.StoryText != "" {
+		output["content"] = status.StoryText
+	}
+	if len(status.GeneratedImages) > 0 {
+		output["imageUrls"] = status.GeneratedImages
+	}
+	output["draftFragmentId"] = content.FragmentID
+	output["fragmentId"] = content.FragmentID
+	return output, content, tokens
 }

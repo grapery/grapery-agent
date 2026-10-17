@@ -1,0 +1,200 @@
+[
+  {
+    "id": "engineering.fragment.v1",
+    "key": "engineering.fragment",
+    "version": 1,
+    "name": "Story fragment engineering default",
+    "description": "Versioned engineering creation workflow; operations may tune bounded creativeControls.",
+    "status": "released",
+    "manifest": {
+      "engineeringDefault": true,
+      "defaultGraphVersion": 1,
+      "surface": "voyager.fragment",
+      "action": "generate",
+      "creativeControls": {
+        "version": 1,
+        "pacing": "balanced",
+        "dialogueDensity": "balanced",
+        "visualEmphasis": "balanced",
+        "tone": "neutral",
+        "examples": []
+      }
+    },
+    "definition": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "nodes": [
+        {
+          "id": "generate_fragment",
+          "type": "activity",
+          "activity": "legacy.fragment.generate"
+        }
+      ]
+    },
+    "promptBundle": {},
+    "policies": {
+      "maxDurationSeconds": 43200,
+      "maxParallelism": 1,
+      "maxAttempts": 2
+    },
+    "checksum": "",
+    "createdBy": "engineering",
+    "publishedAt": "1970-01-01T00:00:00Z",
+    "createdAt": "1970-01-01T00:00:00Z"
+  },
+  {
+    "id": "engineering.storyboard.v1",
+    "key": "engineering.storyboard",
+    "version": 1,
+    "name": "Storyboard engineering default",
+    "description": "Versioned engineering creation workflow; operations may tune bounded creativeControls.",
+    "status": "released",
+    "manifest": {
+      "engineeringDefault": true,
+      "defaultGraphVersion": 1,
+      "surface": "voyager.storyboard",
+      "action": "generate",
+      "creativeControls": {
+        "version": 1,
+        "pacing": "balanced",
+        "dialogueDensity": "balanced",
+        "visualEmphasis": "balanced",
+        "tone": "neutral",
+        "examples": []
+      }
+    },
+    "definition": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "nodes": [
+        {
+          "id": "generate_storyboard",
+          "type": "activity",
+          "activity": "storyboard.ensure_draft"
+        },
+        {
+          "id": "bible_plan",
+          "type": "activity",
+          "activity": "storyboard.generate_bible_plan",
+          "dependsOn": [
+            "generate_storyboard"
+          ]
+        },
+        {
+          "id": "scene_plan",
+          "type": "activity",
+          "activity": "storyboard.generate_scene_plan",
+          "dependsOn": [
+            "bible_plan"
+          ]
+        },
+        {
+          "id": "review_content",
+          "type": "activity",
+          "activity": "storyboard.review_content",
+          "dependsOn": [
+            "scene_plan"
+          ]
+        },
+        {
+          "id": "persist_content",
+          "type": "persist",
+          "activity": "storyboard.persist_content",
+          "dependsOn": [
+            "review_content"
+          ]
+        },
+        {
+          "id": "ensure_images",
+          "type": "activity",
+          "activity": "storyboard.ensure_images",
+          "dependsOn": [
+            "persist_content"
+          ],
+          "config": {
+            "inputDefaults": {
+              "generateImages": true
+            }
+          }
+        }
+      ]
+    },
+    "promptBundle": {},
+    "policies": {
+      "maxDurationSeconds": 43200,
+      "maxParallelism": 1,
+      "maxAttempts": 2
+    },
+    "checksum": "",
+    "createdBy": "engineering",
+    "publishedAt": "1970-01-01T00:00:00Z",
+    "createdAt": "1970-01-01T00:00:00Z"
+  },
+  {
+    "id": "engineering.character.v1",
+    "key": "engineering.character",
+    "version": 1,
+    "name": "Story character engineering default",
+    "description": "Versioned engineering creation workflow; operations may tune bounded creativeControls.",
+    "status": "released",
+    "manifest": {
+      "engineeringDefault": true,
+      "defaultGraphVersion": 1,
+      "surface": "voyager.character",
+      "action": "generate",
+      "creativeControls": {
+        "version": 1,
+        "pacing": "balanced",
+        "dialogueDensity": "balanced",
+        "visualEmphasis": "balanced",
+        "tone": "neutral",
+        "examples": []
+      }
+    },
+    "definition": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "nodes": [
+        {
+          "id": "generate_character",
+          "type": "activity",
+          "activity": "legacy.character.generate",
+          "config": {
+            "inputDefaults": {
+              "useAsyncTask": true,
+              "createRecord": true,
+              "generatePortrait": true,
+              "generateAvatar": true,
+              "generateThreeViews": true
+            }
+          }
+        }
+      ]
+    },
+    "promptBundle": {},
+    "policies": {
+      "maxDurationSeconds": 43200,
+      "maxParallelism": 1,
+      "maxAttempts": 2
+    },
+    "checksum": "",
+    "createdBy": "engineering",
+    "publishedAt": "1970-01-01T00:00:00Z",
+    "createdAt": "1970-01-01T00:00:00Z"
+  }
+]

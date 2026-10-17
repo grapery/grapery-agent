@@ -17,8 +17,10 @@ func NewGenerateAttrsTool(client *grapery_client.Client) (tool.InvokableTool, er
 		"使用 AI 根据提示词生成角色的完整属性（性格、背景、外貌、能力等）",
 		func(ctx context.Context, input *GenerateAttrsInput) (*GenerateAttrsOutput, error) {
 			resp, err := client.GenerateCharacterAttrs(ctx, grapery_client.GenerateCharacterAttrsRequest{
-				Prompt: input.Prompt,
-				Name:   input.Name,
+				Prompt:          input.Prompt,
+				StoryID:         input.StoryID,
+				KnownAttributes: input.KnownAttributes,
+				Name:            input.Name,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("generate character attrs: %w", err)
@@ -45,19 +47,19 @@ func NewCreateCharacterTool(client *grapery_client.Client) (tool.InvokableTool, 
 		"在指定故事中创建一个角色记录",
 		func(ctx context.Context, input *CreateCharacterInput) (*CreateCharacterOutput, error) {
 			resp, err := client.CreateCharacter(ctx, grapery_client.CreateCharacterRequest{
-				Name:            input.Name,
-				Description:     input.Description,
-				Personality:     input.Personality,
-				Background:      input.Background,
-				ShortTermGoal:   input.ShortTermGoal,
-				LongTermGoal:    input.LongTermGoal,
-				HandlingStyle:   input.HandlingStyle,
-				CognitionRange:  input.CognitionRange,
-				AbilityFeatures: input.AbilityFeatures,
-				Appearance:      input.Appearance,
-				DressPreference: input.DressPreference,
-				StoryID:         input.StoryID,
-				IsPublic:        input.IsPublic,
+				Name:                       input.Name,
+				Description:                input.Description,
+				Personality:                input.Personality,
+				Background:                 input.Background,
+				ShortTermGoal:              input.ShortTermGoal,
+				LongTermGoal:               input.LongTermGoal,
+				HandlingStyle:              input.HandlingStyle,
+				CognitionRange:             input.CognitionRange,
+				AbilityFeatures:            input.AbilityFeatures,
+				Appearance:                 input.Appearance,
+				DressPreference:            input.DressPreference,
+				StoryID:                    input.StoryID,
+				IsPublic:                   input.IsPublic,
 				SourceType:                 input.SourceType,
 				ReferenceImage:             input.ReferenceImage,
 				SourceFragmentID:           input.SourceFragmentID,
@@ -207,6 +209,7 @@ func NewPollCharacterGenTaskTool(client *grapery_client.Client) (tool.InvokableT
 			}
 			out := &PollCharacterGenTaskOutput{
 				TaskID:       task.ID,
+				Stages:       task.Stages,
 				Status:       task.Status,
 				Progress:     task.Progress,
 				CurrentStep:  task.CurrentStep,
@@ -293,8 +296,10 @@ func ToolInfos() string {
 // ============ 类型定义 ============
 
 type GenerateAttrsInput struct {
-	Prompt string `json:"prompt" jsonschema:"description=角色生成提示词,required"`
-	Name   string `json:"name,omitempty" jsonschema:"description=角色名称"`
+	StoryID         string                                  `json:"story_id,omitempty" jsonschema:"description=所属故事ID，有故事时必须传入以保留世界规则"`
+	KnownAttributes *grapery_client.GeneratedCharacterAttrs `json:"known_attributes,omitempty" jsonschema:"description=用户已确认字段，只补空项"`
+	Prompt          string                                  `json:"prompt" jsonschema:"description=角色生成提示词,required"`
+	Name            string                                  `json:"name,omitempty" jsonschema:"description=角色名称"`
 }
 
 type GenerateAttrsOutput struct {
@@ -311,19 +316,19 @@ type GenerateAttrsOutput struct {
 }
 
 type CreateCharacterInput struct {
-	Name            string `json:"name" jsonschema:"description=角色名称,required"`
-	StoryID         string `json:"story_id" jsonschema:"description=所属故事 ID,required"`
-	Description     string `json:"description,omitempty"`
-	Personality     string `json:"personality,omitempty"`
-	Background      string `json:"background,omitempty"`
-	ShortTermGoal   string `json:"short_term_goal,omitempty"`
-	LongTermGoal    string `json:"long_term_goal,omitempty"`
-	HandlingStyle   string `json:"handling_style,omitempty"`
-	CognitionRange  string `json:"cognition_range,omitempty"`
-	AbilityFeatures string `json:"ability_features,omitempty"`
-	Appearance      string `json:"appearance,omitempty"`
-	DressPreference string `json:"dress_preference,omitempty"`
-	IsPublic        bool   `json:"is_public,omitempty"`
+	Name                       string `json:"name" jsonschema:"description=角色名称,required"`
+	StoryID                    string `json:"story_id" jsonschema:"description=所属故事 ID,required"`
+	Description                string `json:"description,omitempty"`
+	Personality                string `json:"personality,omitempty"`
+	Background                 string `json:"background,omitempty"`
+	ShortTermGoal              string `json:"short_term_goal,omitempty"`
+	LongTermGoal               string `json:"long_term_goal,omitempty"`
+	HandlingStyle              string `json:"handling_style,omitempty"`
+	CognitionRange             string `json:"cognition_range,omitempty"`
+	AbilityFeatures            string `json:"ability_features,omitempty"`
+	Appearance                 string `json:"appearance,omitempty"`
+	DressPreference            string `json:"dress_preference,omitempty"`
+	IsPublic                   bool   `json:"is_public,omitempty"`
 	SourceType                 string `json:"source_type,omitempty"`
 	ReferenceImage             string `json:"reference_image,omitempty"`
 	SourceFragmentID           string `json:"source_fragment_id,omitempty"`
@@ -336,9 +341,9 @@ type FragmentSuggestionsInput struct {
 }
 
 type FragmentSuggestionsOutput struct {
-	StoryID      string                   `json:"story_id"`
-	FragmentID   string                   `json:"fragment_id,omitempty"`
-	Suggestions  []FragmentSuggestionItem `json:"suggestions,omitempty"`
+	StoryID     string                   `json:"story_id"`
+	FragmentID  string                   `json:"fragment_id,omitempty"`
+	Suggestions []FragmentSuggestionItem `json:"suggestions,omitempty"`
 }
 
 type FragmentSuggestionItem struct {
@@ -388,14 +393,15 @@ type PollCharacterGenTaskInput struct {
 }
 
 type PollCharacterGenTaskOutput struct {
-	TaskID        string `json:"task_id"`
-	Status        string `json:"status"`
-	Progress      int    `json:"progress"`
-	CurrentStep   string `json:"current_step,omitempty"`
-	CharacterID   string `json:"character_id,omitempty"`
-	CharacterName string `json:"character_name,omitempty"`
-	PortraitURL   string `json:"portrait_url,omitempty"`
-	ErrorMessage  string `json:"error_message,omitempty"`
+	Stages        map[string]grapery_client.CharacterGenTaskStage `json:"stages,omitempty"`
+	TaskID        string                                          `json:"task_id"`
+	Status        string                                          `json:"status"`
+	Progress      int                                             `json:"progress"`
+	CurrentStep   string                                          `json:"current_step,omitempty"`
+	CharacterID   string                                          `json:"character_id,omitempty"`
+	CharacterName string                                          `json:"character_name,omitempty"`
+	PortraitURL   string                                          `json:"portrait_url,omitempty"`
+	ErrorMessage  string                                          `json:"error_message,omitempty"`
 }
 
 type CreateCharacterOutput struct {

@@ -10,6 +10,7 @@ package domain
 
 // FragmentGenerateInput mirrors grapery text fragment generation (FragmentCreator).
 type FragmentGenerateInput struct {
+	CreativeControls        *CreativeControls       `json:"creativeControls,omitempty"`
 	UserInput               string                  `json:"userInput"`
 	ReferenceImages         []string                `json:"referenceImages,omitempty"`
 	ReferenceSlots          []FragmentReferenceSlot `json:"referenceSlots,omitempty"`
@@ -78,61 +79,68 @@ type StoryGenerateInput struct {
 
 // StoryboardGenerateInput drives storyboard creation pipeline (StoryboardDirector).
 type StoryboardGenerateInput struct {
-	ClientRequestID      string   `json:"clientRequestId,omitempty"`
-	StoryID              string   `json:"storyId"`
-	Title                string   `json:"title,omitempty"`
-	RawInput             string   `json:"rawInput"`
-	SceneCount           int      `json:"sceneCount,omitempty"`
-	CharacterIDs         []string `json:"characterIds,omitempty"`
-	Style                string   `json:"style,omitempty"`
-	ComicStyle           string   `json:"comicStyle,omitempty"`
-	AspectRatio          string   `json:"aspectRatio,omitempty"`
-	Language             string   `json:"language,omitempty"`
-	ParentStoryboardID   string   `json:"parentStoryboardId,omitempty"`
-	ChapterContent       string   `json:"chapterContent,omitempty"`
-	StoryContent         string   `json:"storyContent,omitempty"`
-	ParentEnding         string   `json:"parentEnding,omitempty"`
-	DraftStoryboardID    string   `json:"draftStoryboardId,omitempty"`
-	UseComicPagePipeline bool     `json:"useComicPagePipeline,omitempty"`
-	GenerateImages       bool     `json:"generateImages,omitempty"`
-	PollProgress         *bool    `json:"pollProgress,omitempty"` // nil/true: wait for create-time redesign; false: return after create
-	RegenerateStructure  bool     `json:"regenerateStructure,omitempty"`
-	PollTimeoutSec       int      `json:"pollTimeoutSec,omitempty"`
-	WorkflowReleaseID    string   `json:"workflowReleaseId,omitempty"`
-	WorkflowRunID        string   `json:"workflowRunId,omitempty"`
+	CreativeControls     *CreativeControls `json:"creativeControls,omitempty"`
+	ClientRequestID      string            `json:"clientRequestId,omitempty"`
+	StoryID              string            `json:"storyId"`
+	Title                string            `json:"title,omitempty"`
+	RawInput             string            `json:"rawInput"`
+	SceneCount           int               `json:"sceneCount,omitempty"`
+	CharacterIDs         []string          `json:"characterIds,omitempty"`
+	Style                string            `json:"style,omitempty"`
+	ComicStyle           string            `json:"comicStyle,omitempty"`
+	AspectRatio          string            `json:"aspectRatio,omitempty"`
+	Language             string            `json:"language,omitempty"`
+	ParentStoryboardID   string            `json:"parentStoryboardId,omitempty"`
+	ChapterContent       string            `json:"chapterContent,omitempty"`
+	StoryContent         string            `json:"storyContent,omitempty"`
+	ParentEnding         string            `json:"parentEnding,omitempty"`
+	DraftStoryboardID    string            `json:"draftStoryboardId,omitempty"`
+	UseComicPagePipeline bool              `json:"useComicPagePipeline,omitempty"`
+	GenerateImages       bool              `json:"generateImages,omitempty"`
+	PollProgress         *bool             `json:"pollProgress,omitempty"` // nil/true: wait for create-time redesign; false: return after create
+	RegenerateStructure  bool              `json:"regenerateStructure,omitempty"`
+	BaseRevision         string            `json:"baseRevision,omitempty"`
+	TargetSceneIDs       []string          `json:"targetSceneIds,omitempty"`
+	SceneIDs             []string          `json:"sceneIds,omitempty"`
+	PollTimeoutSec       int               `json:"pollTimeoutSec,omitempty"`
+	WorkflowReleaseID    string            `json:"workflowReleaseId,omitempty"`
+	WorkflowRunID        string            `json:"workflowRunId,omitempty"`
 }
 
 // CharacterGenerateInput drives attribute gen + optional create + portrait (CharacterDesigner).
 type CharacterGenerateInput struct {
-	ClientRequestID            string `json:"clientRequestId,omitempty"`
-	StoryID                    string `json:"storyId"`
-	Prompt                     string `json:"prompt"`
-	Name                       string `json:"name,omitempty"`
-	CreateRecord               bool   `json:"createRecord,omitempty"`
-	UseAsyncTask               bool   `json:"useAsyncTask,omitempty"`
-	GeneratePortrait           bool   `json:"generatePortrait,omitempty"`
-	GenerateAvatar             bool   `json:"generateAvatar,omitempty"`
-	GenerateThreeViews         bool   `json:"generateThreeViews,omitempty"`
-	ReferenceImage             string `json:"referenceImage,omitempty"`
-	SourceFragmentID           string `json:"sourceFragmentId,omitempty"`
-	SourceFragmentCharacterKey string `json:"sourceFragmentCharacterKey,omitempty"`
-	SourceType                 string `json:"sourceType,omitempty"`
+	WorkflowReleaseID          string            `json:"workflowReleaseId,omitempty"`
+	CreativeControls           *CreativeControls `json:"creativeControls,omitempty"`
+	ClientRequestID            string            `json:"clientRequestId,omitempty"`
+	StoryID                    string            `json:"storyId"`
+	Prompt                     string            `json:"prompt"`
+	Name                       string            `json:"name,omitempty"`
+	CreateRecord               bool              `json:"createRecord,omitempty"`
+	UseAsyncTask               bool              `json:"useAsyncTask,omitempty"`
+	GeneratePortrait           bool              `json:"generatePortrait,omitempty"`
+	GenerateAvatar             bool              `json:"generateAvatar,omitempty"`
+	GenerateThreeViews         bool              `json:"generateThreeViews,omitempty"`
+	ReferenceImage             string            `json:"referenceImage,omitempty"`
+	SourceFragmentID           string            `json:"sourceFragmentId,omitempty"`
+	SourceFragmentCharacterKey string            `json:"sourceFragmentCharacterKey,omitempty"`
+	SourceType                 string            `json:"sourceType,omitempty"`
 }
 
 // BranchExploreInput requests N parallel continuations from a parent storyboard.
 type BranchExploreInput struct {
-	ClientRequestID    string   `json:"clientRequestId,omitempty"`
-	ParentStoryboardID string   `json:"parentStoryboardId"`
-	SeedPrompt         string   `json:"seedPrompt,omitempty"`
-	ChapterContent     string   `json:"chapterContent,omitempty"`
-	StoryContent       string   `json:"storyContent,omitempty"`
-	ParentEnding       string   `json:"parentEnding,omitempty"`
-	BranchCount        int      `json:"branchCount,omitempty"`
-	SceneCount         int      `json:"sceneCount,omitempty"`
-	Characters         []string `json:"characters,omitempty"`
-	Strategies         []string `json:"strategies,omitempty"`
-	ComicStyle         string   `json:"comicStyle,omitempty"`
-	WorkflowReleaseID  string   `json:"workflowReleaseId,omitempty"`
+	CreativeControls   *CreativeControls `json:"creativeControls,omitempty"`
+	ClientRequestID    string            `json:"clientRequestId,omitempty"`
+	ParentStoryboardID string            `json:"parentStoryboardId"`
+	SeedPrompt         string            `json:"seedPrompt,omitempty"`
+	ChapterContent     string            `json:"chapterContent,omitempty"`
+	StoryContent       string            `json:"storyContent,omitempty"`
+	ParentEnding       string            `json:"parentEnding,omitempty"`
+	BranchCount        int               `json:"branchCount,omitempty"`
+	SceneCount         int               `json:"sceneCount,omitempty"`
+	Characters         []string          `json:"characters,omitempty"`
+	Strategies         []string          `json:"strategies,omitempty"`
+	ComicStyle         string            `json:"comicStyle,omitempty"`
+	WorkflowReleaseID  string            `json:"workflowReleaseId,omitempty"`
 }
 
 type WorkflowStartInput struct {
